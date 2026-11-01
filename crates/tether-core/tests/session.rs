@@ -99,6 +99,35 @@ fn session_works_without_interrupt_notifications() {
 }
 
 #[test]
+fn pinned_host_mac_overrides_the_device_value() {
+    let (host, phone) = macs();
+    let device = MockRndisDevice::new().with_host_mac(phone.0);
+    let config = SessionConfig {
+        host_mac_override: Some(host.0),
+        ..short_config()
+    };
+    let mut session = RndisSession::new(device, &mock_function(true), config).unwrap();
+    let info = session.initialize().unwrap();
+    assert_eq!(info.host_mac, host.0);
+    assert!(!info.host_mac_from_device);
+    assert!(info
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("pinned")));
+}
+
+#[test]
+fn invalid_pinned_host_mac_is_rejected() {
+    let device = MockRndisDevice::new();
+    let config = SessionConfig {
+        host_mac_override: Some([0x01, 0, 0, 0, 0, 1]),
+        ..short_config()
+    };
+    let mut session = RndisSession::new(device, &mock_function(true), config).unwrap();
+    assert!(session.initialize().is_err());
+}
+
+#[test]
 fn multiple_frames_in_one_transfer_are_reassembled() {
     let (host, _phone) = macs();
     let mut device = MockRndisDevice::new().with_host_mac(host.0);

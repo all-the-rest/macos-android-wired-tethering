@@ -20,7 +20,7 @@ use tether_core::descriptor::{host_mac_from_key, valid_host_mac, DetectedFunctio
 use tether_core::engine::{EngineConfig, EngineStats, TetherEngine};
 use tether_core::error::{ErrorCategory, Result, TetherError};
 use tether_core::ethernet::{parse_mac, MacAddr};
-use tether_core::rndis::session::{RndisSession, SessionConfig};
+use tether_core::rndis::session::{RndisSession, SessionConfig, SessionInfo};
 use tether_core::testkit::{run_simulation, Scenario};
 use tether_macos::bpf::BpfSocket;
 use tether_macos::service::SERVICE_ID;
@@ -80,6 +80,9 @@ enum Commands {
         /// Override the host MAC address (must be unicast).
         #[arg(long)]
         mac: Option<String>,
+        /// Seconds to wait for the device after a disconnect (0 disables).
+        #[arg(long, default_value_t = 60)]
+        reconnect_timeout: u64,
     },
     /// Ask the running session to shut down and clean up.
     Disconnect,
@@ -112,9 +115,12 @@ fn run(cli: Cli) -> Result<()> {
         Commands::List { all } => command_list(cli.json, all),
         Commands::Status => command_status(cli.json),
         Commands::Diagnose => command_diagnose(cli.json, &cli.helper),
-        Commands::Connect { device, mtu, mac } => {
-            command_connect(cli.json, &cli.helper, device, mtu, mac)
-        }
+        Commands::Connect {
+            device,
+            mtu,
+            mac,
+            reconnect_timeout,
+        } => command_connect(cli.json, &cli.helper, device, mtu, mac, reconnect_timeout),
         Commands::Disconnect => command_disconnect(cli.json),
         Commands::Cleanup => command_cleanup(cli.json, &cli.helper),
         Commands::Simulate { scenario } => command_simulate(cli.json, &scenario),
@@ -568,28 +574,18 @@ fn command_connect(
     selector: Option<String>,
     mtu_override: Option<u16>,
     mac_override: Option<String>,
+    reconnect_timeout_secs: u64,
 ) -> Result<()> {
     let devices = list_devices()?;
-    let selected = choose_device(&devices, selector.as_deref())?;
-    let (bus, address, vendor_id, product_id) = (
-        selected.bus,
-        selected.address,
-        selected.vendor_id,
-        selected.product_id,
-    );
+    let mut device = choose_device(&devices, selector.as_deref())?.clone();
     let mut helper = HelperClient::connect(helper_path)?;
     helper.hello()?;
 
-    let opened = open_rndis(bus, address)?;
-    let function = opened.function.clone();
-    let fallback =
-        host_mac_from_key(format!("{vendor_id:04x}:{product_id:04x}:{bus}:{address}").as_bytes());
-    let config = SessionConfig {
-        host_mac_fallback: fallback,
+    let initial_config = SessionConfig {
+        host_mac_fallback: host_mac_fallback(&device),
         ..SessionConfig::default()
     };
-    let mut session = RndisSession::new(LibusbTransport::new(opened), &function, config)?;
-    let info = session.initialize()?;
+    let (session, info) = open_session(&device, initial_config)?;
     let max_mtu = info.max_frame_size.saturating_sub(14).clamp(576, 1500) as u16;
     let mtu = mtu_override.unwrap_or(max_mtu);
     if !(576..=max_mtu).contains(&mtu) {
@@ -619,7 +615,13 @@ fn command_connect(
     };
     let bridge = RemoteFrameIo::new(bpf, helper);
     let mut engine = TetherEngine::new(session, bridge, EngineConfig::default());
-    let engine_info = engine.initialize()?;
+    let engine_info = match engine.initialize() {
+        Ok(info) => info,
+        Err(error) => {
+            engine.bridge_mut().shutdown();
+            return Err(error);
+        }
+    };
     let started = now_unix();
     let mut runtime = RuntimeState {
         pid: std::process::id(),
@@ -629,10 +631,10 @@ fn command_connect(
             .map(|path| path.display().to_string())
             .unwrap_or_default(),
         protocol: engine_info.protocol.as_str().to_string(),
-        bus,
-        address,
-        vendor_id,
-        product_id,
+        bus: device.bus,
+        address: device.address,
+        vendor_id: device.vendor_id,
+        product_id: device.product_id,
         host_iface: created.host_iface.clone(),
         peer_iface: created.peer_iface.clone(),
         service: created.service.clone(),
@@ -646,8 +648,8 @@ fn command_connect(
         reconnects: 0,
         last_error: None,
     };
-    write_state(&runtime)?;
     install_signal_handlers()?;
+    write_state(&runtime)?;
     if !json_output {
         println!(
             "Connected: {} over {} (peer {}, service '{}', MTU {})",
@@ -655,19 +657,221 @@ fn command_connect(
         );
         println!("Press Ctrl-C to disconnect.");
     }
+
+    let mut total_reconnects = 0u64;
     let result = engine.run(&STOP, |stats| {
         update_runtime(&mut runtime, stats);
+        runtime.reconnects = total_reconnects + stats.reconnects;
         if let Err(error) = write_state(&runtime) {
             eprintln!("warning: cannot update state: {}", error.message);
         }
     });
-    engine.bridge_mut().shutdown();
+    let (session, bridge_back) = engine.into_parts();
+    drop(session);
+    let mut bridge = bridge_back;
+
+    match result {
+        Ok(()) => {
+            bridge.shutdown();
+            clear_state();
+            if json_output {
+                print_json(&json!({"connected": false, "cleanup": true}))?;
+            }
+            return Ok(());
+        }
+        Err(error)
+            if !STOP.load(Ordering::Relaxed)
+                && reconnect_timeout_secs > 0
+                && is_reconnectable(error.category) =>
+        {
+            total_reconnects += 1;
+            runtime.reconnects = total_reconnects;
+            runtime.last_error = Some(error.category.as_str().to_string());
+            runtime.updated_unix = now_unix();
+            let _ = write_state(&runtime);
+            if !json_output {
+                eprintln!(
+                    "Connection lost ({}); waiting up to {}s for the device...",
+                    error.category.as_str(),
+                    reconnect_timeout_secs
+                );
+            }
+        }
+        Err(error) => {
+            bridge.shutdown();
+            clear_state();
+            return Err(error);
+        }
+    }
+
+    let reconnect_timeout = Duration::from_secs(reconnect_timeout_secs);
+    loop {
+        let next = match wait_for_device(selector.as_deref(), &STOP, reconnect_timeout) {
+            Ok(Some(device)) => device,
+            Ok(None) => break,
+            Err(error) => {
+                bridge.shutdown();
+                clear_state();
+                return Err(error);
+            }
+        };
+        device = next;
+
+        let config = SessionConfig {
+            host_mac_fallback: host_mac_fallback(&device),
+            host_mac_override: Some(host_mac.0),
+            ..SessionConfig::default()
+        };
+        let (session, info) = match open_session(&device, config) {
+            Ok(value) => value,
+            Err(error) if !STOP.load(Ordering::Relaxed) && is_reconnectable(error.category) => {
+                continue;
+            }
+            Err(error) => {
+                bridge.shutdown();
+                clear_state();
+                return Err(error);
+            }
+        };
+        let max_mtu = info.max_frame_size.saturating_sub(14).clamp(576, 1500) as u16;
+        if runtime.mtu > max_mtu {
+            bridge.shutdown();
+            clear_state();
+            return Err(TetherError::new(
+                ErrorCategory::Configuration,
+                format!(
+                    "reconnected device supports MTU {max_mtu}, but the bridge uses {}; run disconnect and connect again",
+                    runtime.mtu
+                ),
+            ));
+        }
+        runtime.bus = device.bus;
+        runtime.address = device.address;
+        runtime.vendor_id = device.vendor_id;
+        runtime.product_id = device.product_id;
+        runtime.protocol = info.protocol.as_str().to_string();
+        runtime.updated_unix = now_unix();
+
+        let mut engine = TetherEngine::new(session, bridge, EngineConfig::default());
+        if let Err(error) = engine.initialize() {
+            let (session, bridge_back) = engine.into_parts();
+            drop(session);
+            bridge = bridge_back;
+            if !STOP.load(Ordering::Relaxed) && is_reconnectable(error.category) {
+                continue;
+            }
+            bridge.shutdown();
+            clear_state();
+            return Err(error);
+        }
+        if let Err(error) = write_state(&runtime) {
+            eprintln!("warning: cannot update state: {}", error.message);
+        }
+        let base = total_reconnects;
+        let result = engine.run(&STOP, |stats| {
+            update_runtime(&mut runtime, stats);
+            runtime.reconnects = base + stats.reconnects;
+            if let Err(error) = write_state(&runtime) {
+                eprintln!("warning: cannot update state: {}", error.message);
+            }
+        });
+        let (session, bridge_back) = engine.into_parts();
+        drop(session);
+        bridge = bridge_back;
+        match result {
+            Ok(()) => break,
+            Err(error) if !STOP.load(Ordering::Relaxed) && is_reconnectable(error.category) => {
+                total_reconnects += 1;
+                runtime.reconnects = total_reconnects;
+                runtime.last_error = Some(error.category.as_str().to_string());
+                runtime.updated_unix = now_unix();
+                let _ = write_state(&runtime);
+                if !json_output {
+                    eprintln!(
+                        "Connection lost ({}); waiting up to {}s for the device...",
+                        error.category.as_str(),
+                        reconnect_timeout_secs
+                    );
+                }
+            }
+            Err(error) => {
+                bridge.shutdown();
+                clear_state();
+                return Err(error);
+            }
+        }
+    }
+
+    bridge.shutdown();
     clear_state();
-    result?;
     if json_output {
         print_json(&json!({"connected": false, "cleanup": true}))?;
     }
     Ok(())
+}
+
+fn open_session(
+    device: &DeviceInfo,
+    config: SessionConfig,
+) -> Result<(RndisSession<LibusbTransport>, SessionInfo)> {
+    let opened = open_rndis(device.bus, device.address)?;
+    let function = opened.function.clone();
+    let mut session = RndisSession::new(LibusbTransport::new(opened), &function, config)?;
+    let info = session.initialize()?;
+    Ok((session, info))
+}
+
+fn host_mac_fallback(device: &DeviceInfo) -> [u8; 6] {
+    host_mac_from_key(
+        format!(
+            "{:04x}:{:04x}:{}:{}",
+            device.vendor_id, device.product_id, device.bus, device.address
+        )
+        .as_bytes(),
+    )
+}
+
+fn wait_for_device(
+    selector: Option<&str>,
+    stop: &AtomicBool,
+    timeout: Duration,
+) -> Result<Option<DeviceInfo>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        if let Ok(devices) = list_devices() {
+            match choose_device(&devices, selector) {
+                Ok(device) => return Ok(Some(device.clone())),
+                Err(error) if error.category == ErrorCategory::UsbNotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(TetherError::new(
+                ErrorCategory::UsbNotFound,
+                format!(
+                    "no usable RNDIS device reappeared within {} seconds",
+                    timeout.as_secs()
+                ),
+            ));
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
+fn is_reconnectable(category: ErrorCategory) -> bool {
+    matches!(
+        category,
+        ErrorCategory::UsbNotFound
+            | ErrorCategory::UsbBusy
+            | ErrorCategory::UsbTimeout
+            | ErrorCategory::UsbTransfer
+            | ErrorCategory::ProtocolTimeout
+            | ErrorCategory::ProtocolViolation
+            | ErrorCategory::LinkDown
+    )
 }
 
 fn update_runtime(runtime: &mut RuntimeState, stats: &EngineStats) {

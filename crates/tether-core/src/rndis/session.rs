@@ -47,6 +47,9 @@ pub struct SessionConfig {
     pub keepalive_interval: Duration,
     pub packet_filter: u32,
     pub host_mac_fallback: [u8; 6],
+    /// Pin the host MAC to an existing feth bridge address.  Used when a
+    /// session is re-established after a replug without recreating the bridge.
+    pub host_mac_override: Option<[u8; 6]>,
     pub allow_reduced_filter: bool,
 }
 
@@ -62,6 +65,7 @@ impl Default for SessionConfig {
             keepalive_interval: Duration::from_secs(5),
             packet_filter: DEFAULT_PACKET_FILTER,
             host_mac_fallback: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+            host_mac_override: None,
             allow_reduced_filter: true,
         }
     }
@@ -300,7 +304,17 @@ impl<T: UsbTransport> RndisSession<T> {
                 }
             }
         }
-        if !host_mac_from_device {
+        if let Some(pinned) = self.config.host_mac_override {
+            if !crate::descriptor::valid_host_mac(&pinned) {
+                return Err(TetherError::new(
+                    ErrorCategory::Configuration,
+                    "pinned host MAC is not a valid unicast address",
+                ));
+            }
+            host_mac = pinned;
+            host_mac_from_device = false;
+            warnings.push("host MAC pinned to the existing bridge address".to_string());
+        } else if !host_mac_from_device {
             warnings.push(format!(
                 "using locally generated host MAC {}",
                 ethernet::MacAddr(host_mac)

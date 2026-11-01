@@ -255,6 +255,15 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
     pub fn info(&self) -> Option<&SessionInfo> {
         self.info.as_ref()
     }
+
+    /// Consume the engine and return its session and bridge.
+    ///
+    /// This is used by the CLI reconnect supervisor: after a USB session
+    /// fails, the bridge (feth/BPF/network service) can be kept while a new
+    /// USB session is opened.
+    pub fn into_parts(self) -> (RndisSession<T>, B) {
+        (self.session, self.bridge)
+    }
 }
 
 fn is_recoverable(category: ErrorCategory) -> bool {

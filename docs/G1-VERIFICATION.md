@@ -31,7 +31,7 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **102 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **104 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
@@ -41,7 +41,7 @@ Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
-| `tests/session.rs` | 18 |
+| `tests/session.rs` | 20 (inkl. gepinnter Host-MAC) |
 | `tether-helper` Unit-Tests | 3 (LaunchDaemon-plist) |
 | `tether-macos` Unit-Tests | 18 |
 | `tether-usb` Unit-Tests | 1 (Claim-Plan) |
@@ -58,6 +58,8 @@ Wesentliche synthetische Nachweise:
 - mehrere Frames pro Transfer, Reassembly über beliebige Transfergrenzen,
   Padding und USB-Short-Packet-Fall;
 - Link-Down/Up-Indications, Keepalive, Reset und erneute Initialisierung;
+- begrenzter Reconnect nach Geräteverlust: feth/BPF/Netzwerkdienst bleiben
+  erhalten, die neue RNDIS-Session pinnt die bestehende Host-MAC;
 - begrenzte Fehler-Recovery nach transientem Bulk-Fehler;
 - negative Tests für falsche Request-IDs, Truncation, ungültige Offsets und
   übergroße Frames;

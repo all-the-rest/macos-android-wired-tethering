@@ -108,6 +108,8 @@ android-tether diagnose --json
 # RNDIS-Verbindung im Vordergrund starten
 android-tether connect
 android-tether connect --device 1:5 --mtu 1500
+# Nach einem Replug bis zu 120 s auf ein RNDIS-Gerät warten (0 = aus)
+android-tether connect --reconnect-timeout 120
 
 # Status / Beenden / Aufräumen
 android-tether status --json
