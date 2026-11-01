@@ -31,20 +31,20 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`cargo test --workspace`, Log in
-`target/g1/test-workspace.log`): **130 bestanden, 0 fehlgeschlagen**.
+`target/g1/test-workspace.log`): **138 bestanden, 0 fehlgeschlagen**.
 Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
-| `tether-cli` Unit-Tests | 11 (State, PID, IPv4, ifconfig, Helper-Fehler, CREATE-Parser) |
+| `tether-cli` Unit-Tests | 14 (State, PID, IPv4, ifconfig, Helper-Fehler, CREATE-Parser, LaunchAgent-Plist) |
 | `tether-cli` Integrationstests | 5 |
 | `tether-core` Unit-Tests | 28 |
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
 | `tests/session.rs` | 25 (Host-MAC, Ordnung, Größen-Clamp, Reconnect, Sleep/Wake) |
-| `tether-helper` Unit-Tests | 6 (plist, Socket-Protokoll, CREATE/LINK/PREFER/STATUS/DESTROY) |
-| `tether-macos` Unit-Tests | 26 (inkl. IOKit-Power-Monitor, Darwin-BPF-Header und Dienstreihenfolge) |
+| `tether-helper` Unit-Tests | 7 (plist, Socket-Protokoll, CREATE/LINK/PREFER/FALLBACK/STATUS/DESTROY, Default-Route-Fehler) |
+| `tether-macos` Unit-Tests | 30 (inkl. IOKit-Power-Monitor, Darwin-BPF-Header und Dienstreihenfolge) |
 | `tether-usb` Unit-Tests | 3 (Claim-Plan, Selektor-Auflösung) |
 
 Testanzahl und Fehlversuche werden von `scripts/verify-g1.sh` zusätzlich in
@@ -142,17 +142,17 @@ Der Root-Helper wurde als LaunchDaemon installiert und gestartet:
 
 ```text
 android-tether-helper install --allow-uid 501
-# installed io.github.android-tether.helper
+# installed all-the-rest.android-tether.helper
 # binary: /Library/PrivilegedHelperTools/android-tether-helper
-# plist:  /Library/LaunchDaemons/io.github.android-tether.helper.plist
+# plist:  /Library/LaunchDaemons/all-the-rest.android-tether.helper.plist
 # socket: /var/run/android-tether-helper.sock
 
-launchctl print system/io.github.android-tether.helper
+launchctl print system/all-the-rest.android-tether.helper
 # state = running, program = /Library/PrivilegedHelperTools/android-tether-helper
 ```
 
 `android-tether net-smoke --json` endet mit Exit-Code 0, `passed=true`,
-`skipped=false` und zehn bestandenen Checks (Auszug ohne die beiden
+`skipped=false` und elf bestandenen Checks (Auszug ohne die beiden
 Umgebungschecks `architecture` und `os`):
 
 ```json
@@ -165,6 +165,7 @@ Umgebungschecks `architecture` und `os`):
     {"name": "link_state", "detail": "host interface reports UP", "status": "pass"},
     {"name": "link_down", "detail": "ok", "status": "pass"},
     {"name": "network_service", "detail": "present while session active", "status": "pass"},
+    {"name": "fallback_priority", "detail": "placed behind the current default uplink", "status": "pass"},
     {"name": "cleanup", "detail": "interface removed", "status": "pass"}
   ],
   "passed": true,
@@ -195,7 +196,7 @@ android-tether list --all
 | 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Workflow vorhanden, aber ohne Remote nicht ausgeführt |
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
 | 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake, aber ohne Langzeit-/Hardware-Lauf |
-| 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit zehn bestandenen Checks erfüllt |
+| 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit elf bestandenen Checks erfüllt |
 | 5. Testmatrix, Quellen, Commit-ID, Logs, Lücken | Matrix/Quellen/Logs vorhanden; Commit-ID und Requirement-Abdeckung maschinenlesbar in `target/g1-report.json`; `docs/requirements.json` enthält den geprüften Status je F-/N-Anforderung |
 
 **Ergebnis:** G1 ist mit diesem Lauf erfüllt:

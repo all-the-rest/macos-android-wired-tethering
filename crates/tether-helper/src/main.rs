@@ -253,6 +253,7 @@ fn handle_client(
             ),
             "LINK" => handle_link(&session, &mut channel, &mut parts, runner),
             "PREFER" => handle_prefer(&session, &mut channel, prefs),
+            "FALLBACK" => handle_fallback(&session, &mut channel, runner, prefs),
             "DESTROY" => {
                 if let Some(resources) = session.take() {
                     resources.cleanup(runner, prefs);
@@ -416,6 +417,59 @@ fn handle_prefer(
     }
 }
 
+fn handle_fallback(
+    session: &Option<HelperSession>,
+    channel: &mut FdChannel,
+    runner: &dyn CommandRunner,
+    prefs: &dyn PrefsRunner,
+) -> Result<(), String> {
+    let Some(resources) = session else {
+        channel
+            .send_line("ERR configuration no active session")
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    };
+    let default_interface = match default_route_interface(runner) {
+        Ok(interface) => interface,
+        Err(error) => {
+            channel
+                .send_line(&format!("ERR network {error}"))
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    };
+    match resources
+        .service
+        .fallback(prefs, default_interface.as_deref())
+    {
+        Ok(()) => channel.send_line("OK fallback").map_err(|e| e.to_string()),
+        Err(error) => channel
+            .send_line(&format!("ERR network {error}"))
+            .map_err(|e| e.to_string()),
+    }
+}
+
+fn default_route_interface(runner: &dyn CommandRunner) -> Result<Option<String>, String> {
+    match runner.run("/sbin/route", &["-n", "get", "default"]) {
+        Ok(text) => text
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("interface: ")
+                    .map(|value| value.trim().to_string())
+            })
+            .map(Some)
+            .ok_or_else(|| "route returned no default interface".to_string()),
+        // `route` reports a missing default route with this diagnostic.  Only
+        // that case means "no default"; execution/lookup errors must not
+        // promote the tether above an existing uplink.
+        Err(error) if error.contains("not in table") || error.contains("No such process") => {
+            Ok(None)
+        }
+        Err(error) => Err(format!("cannot read the default route: {error}")),
+    }
+}
+
 struct HelperSession {
     pair: FethPair,
     service: NetworkService,
@@ -545,6 +599,9 @@ mod tests {
             if script.contains("get /") && script.contains("d.show") {
                 output.push_str("CurrentSet : /Sets/ABCD\n");
             }
+            if script.contains("get /NetworkServices/OTHER-SERVICE/Interface") {
+                output.push_str("DeviceName : en0\n");
+            }
             if script.contains("get /Sets/ABCD/Network/Global/IPv4") {
                 if *self.present.borrow() && *self.preferred.borrow() {
                     output.push_str(&format!(
@@ -584,10 +641,48 @@ mod tests {
         fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
             if program == "/sbin/ifconfig" && args.len() == 1 && args[0] == "-l" {
                 Ok("lo0".to_string())
+            } else if program == "/sbin/route" && args == ["-n", "get", "default"] {
+                Ok("route to: default\ninterface: en0\n".to_string())
             } else {
                 Ok(String::new())
             }
         }
+    }
+
+    struct StaticRunner {
+        result: Result<String, String>,
+    }
+
+    impl CommandRunner for StaticRunner {
+        fn run(&self, _program: &str, _args: &[&str]) -> Result<String, String> {
+            self.result.clone()
+        }
+    }
+
+    #[test]
+    fn default_route_lookup_distinguishes_missing_route_from_errors() {
+        let present = StaticRunner {
+            result: Ok("route to: default\ninterface: en0\n".to_string()),
+        };
+        assert_eq!(
+            default_route_interface(&present).unwrap().as_deref(),
+            Some("en0")
+        );
+
+        let missing = StaticRunner {
+            result: Err("/sbin/route -n get default failed: not in table".to_string()),
+        };
+        assert_eq!(default_route_interface(&missing).unwrap(), None);
+
+        let broken = StaticRunner {
+            result: Err("cannot execute /sbin/route: permission denied".to_string()),
+        };
+        assert!(default_route_interface(&broken).is_err());
+
+        let malformed = StaticRunner {
+            result: Ok("route to: default\n".to_string()),
+        };
+        assert!(default_route_interface(&malformed).is_err());
     }
 
     fn fake_bpf(interface: &str) -> tether_core::error::Result<BpfSocket> {
@@ -707,6 +802,15 @@ mod tests {
                 .expect("link down response")
                 .expect("line"),
             "OK link-down"
+        );
+
+        channel.send_line("FALLBACK").expect("fallback");
+        assert_eq!(
+            channel
+                .recv_line()
+                .expect("fallback response")
+                .expect("line"),
+            "OK fallback"
         );
 
         channel.send_line("PREFER").expect("prefer");

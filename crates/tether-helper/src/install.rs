@@ -19,12 +19,14 @@ use std::process::Command;
 
 use tether_macos::service::ScutilRunner;
 
-pub const LABEL: &str = "io.github.android-tether.helper";
+pub const LABEL: &str = "all-the-rest.android-tether.helper";
 pub const DEFAULT_BINARY: &str = "/Library/PrivilegedHelperTools/android-tether-helper";
-pub const DEFAULT_PLIST: &str = "/Library/LaunchDaemons/io.github.android-tether.helper.plist";
+pub const DEFAULT_PLIST: &str = "/Library/LaunchDaemons/all-the-rest.android-tether.helper.plist";
 pub const DEFAULT_SOCKET: &str = "/var/run/android-tether-helper.sock";
 pub const LOG_PATH: &str = "/var/log/android-tether-helper.log";
 const LAUNCHCTL: &str = "/bin/launchctl";
+const LEGACY_LABEL: &str = "io.github.android-tether.helper";
+const LEGACY_PLIST: &str = "/Library/LaunchDaemons/io.github.android-tether.helper.plist";
 
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
@@ -108,6 +110,13 @@ pub fn install(options: &InstallOptions) -> Result<(), String> {
     validate_absolute(&options.plist, "plist")?;
     validate_absolute(&options.socket, "socket")?;
 
+    // Migration from the former io.github.* label.  Stop the old daemon and
+    // remove its plist so two helpers cannot race for the same socket.
+    stop_legacy_helper()?;
+    remove_if_present(Path::new(LEGACY_PLIST))?;
+    // Stop the current helper before copying over its executable.
+    stop_helper_label(LABEL)?;
+
     let source = std::env::current_exe()
         .map_err(|error| format!("cannot locate the running helper binary: {error}"))?;
     let source = source
@@ -136,12 +145,8 @@ pub fn install(options: &InstallOptions) -> Result<(), String> {
     write_atomic(&options.plist, plist.as_bytes())?;
     set_owner_and_mode(&options.plist, 0o644)?;
 
-    // Remove a previous instance so a changed --allow-uid takes effect.
-    // `bootout` returns before the old process has fully exited, so retry the
-    // bootstrap instead of failing with a transient EIO right after an update.
-    let _ = Command::new(LAUNCHCTL)
-        .args(["bootout", &format!("system/{LABEL}")])
-        .status();
+    // The old instance is already stopped; retry the bootstrap because
+    // launchd may still be tearing it down when the plist changes.
     let bootstrapped = bootstrap_with_retry(&options.plist);
     if !bootstrapped {
         let loaded = load_with_retry(&options.plist);
@@ -166,8 +171,8 @@ fn bootstrap_with_retry(plist: &Path) -> bool {
         let loaded = Command::new(LAUNCHCTL)
             .args(["bootstrap", "system"])
             .arg(plist)
-            .status()
-            .map(|status| status.success())
+            .output()
+            .map(|output| output.status.success())
             .unwrap_or(false);
         if loaded {
             return true;
@@ -184,8 +189,8 @@ fn load_with_retry(plist: &Path) -> bool {
         let loaded = Command::new(LAUNCHCTL)
             .args(["load", "-w"])
             .arg(plist)
-            .status()
-            .map(|status| status.success())
+            .output()
+            .map(|output| output.status.success())
             .unwrap_or(false);
         if loaded {
             return true;
@@ -197,15 +202,55 @@ fn load_with_retry(plist: &Path) -> bool {
     false
 }
 
+fn helper_label_loaded(label: &str) -> Result<bool, String> {
+    let target = format!("system/{label}");
+    match Command::new(LAUNCHCTL).args(["print", &target]).output() {
+        Ok(output) if output.status.success() => Ok(true),
+        Ok(output) => {
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if text.contains("Could not find service") || text.contains("No such process") {
+                Ok(false)
+            } else {
+                Err(format!("cannot inspect {target}: {}", text.trim()))
+            }
+        }
+        Err(error) => Err(format!("cannot execute {LAUNCHCTL}: {error}")),
+    }
+}
+
+fn stop_helper_label(label: &str) -> Result<(), String> {
+    if !helper_label_loaded(label)? {
+        return Ok(());
+    }
+    let target = format!("system/{label}");
+    let bootout = Command::new(LAUNCHCTL).args(["bootout", &target]).output();
+    for _ in 0..5 {
+        if !helper_label_loaded(label)? {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let detail = bootout
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stderr).trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "launchctl did not stop the helper".to_string());
+    Err(format!("{target} is still loaded: {detail}"))
+}
+
+fn stop_legacy_helper() -> Result<(), String> {
+    stop_helper_label(LEGACY_LABEL)
+}
+
 pub fn uninstall(options: &UninstallOptions) -> Result<(), String> {
     require_root()?;
-    let _ = Command::new(LAUNCHCTL)
-        .args(["bootout", &format!("system/{LABEL}")])
-        .status();
-    let _ = Command::new(LAUNCHCTL)
-        .args(["unload", "-w"])
-        .arg(&options.plist)
-        .status();
+    stop_helper_label(LABEL)?;
+    stop_legacy_helper()?;
+    remove_if_present(Path::new(LEGACY_PLIST))?;
 
     remove_if_present(&options.plist)?;
     remove_if_present(&options.binary)?;
@@ -290,7 +335,7 @@ mod tests {
             Path::new("/var/run/android-tether-helper.sock"),
             501,
         );
-        assert!(plist.contains("<string>io.github.android-tether.helper</string>"));
+        assert!(plist.contains("<string>all-the-rest.android-tether.helper</string>"));
         assert!(
             plist.contains("<string>/Library/PrivilegedHelperTools/android-tether-helper</string>")
         );

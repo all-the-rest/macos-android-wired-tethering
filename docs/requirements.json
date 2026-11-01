@@ -91,12 +91,13 @@
         "crates/tether-core/tests/session.rs",
         "crates/tether-cli/src/state.rs (read-only IPv4 status)",
         "scripts/macos-smoke.sh",
-        "target/g1/net-smoke.json (10/10 checks)",
+        "target/g1/net-smoke.json (11/11 checks, including fallback priority)",
         "docs/G2-VERIFICATION.md (feth100, DHCP <tether-ip>, DNS/default route, HTTPS without Wi-Fi)",
-        "target/g2-prefer/ (route via feth100 and HTTP 200 while Wi-Fi stays on)"
+        "target/g2-prefer/ (route via feth100 and HTTP 200 while Wi-Fi stays on)",
+        "crates/tether-core/src/engine.rs (batched host frames, 100 ms notification polling)"
       ],
       "gaps": [
-        "download throughput is about 53 KB/s with the single-threaded data path",
+        "download throughput was about 44 KB/s before the hot-path batching change; hardware remeasurement is pending",
         "IPv6 forwarding was not separately verified"
       ]
     },
@@ -113,11 +114,14 @@
         "crates/tether-helper/src/main.rs",
         "crates/tether-cli/src/main.rs (reconnect supervisor, host MAC pinning)",
         "real disconnect/connect cycle and 15-minute stability run",
-        "docs/G2-VERIFICATION.md"
+        "docs/G2-VERIFICATION.md",
+        "crates/tether-cli/src/agent.rs (LaunchAgent auto supervisor)",
+        "real user LaunchAgent installed and waiting for RNDIS"
       ],
       "gaps": [
         "hardware sleep/wake, replug and device swap repetitions are still open",
-        "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect"
+        "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect",
+        "auto-connect on the next physical plug/replug is not yet verified on hardware"
       ]
     },
     {
@@ -149,11 +153,13 @@
         "crates/tether-helper/src/install.rs",
         "crates/tether-cli/src/main.rs",
         "real launchd install as root and net-smoke cleanup pass",
-        "docs/G2-VERIFICATION.md"
+        "docs/G2-VERIFICATION.md",
+        "crates/tether-cli/src/agent.rs (install/uninstall of the per-user LaunchAgent)",
+        "real install-agent/uninstall-agent/reinstall run; net-smoke 11/11"
       ],
       "gaps": [
         "no signing or notarisation",
-        "uninstall has not been run separately"
+        "helper uninstall has not been run separately"
       ]
     },
     {

@@ -83,7 +83,7 @@ Modus `0600`. Ein anderer Socket kann mit `--socket` (Helper) und
 Für einen dauerhaften Start kann der Helper als LaunchDaemon installiert
 werden. Der Befehl kopiert das Binary nach
 `/Library/PrivilegedHelperTools/android-tether-helper`, schreibt die plist
-`/Library/LaunchDaemons/io.github.android-tether.helper.plist` und lädt sie mit
+`/Library/LaunchDaemons/all-the-rest.android-tether.helper.plist` und lädt sie mit
 `launchctl`:
 
 ```bash
@@ -109,13 +109,20 @@ android-tether list --all --json
 # Umgebung, Helper, BPF und USB-Geräte prüfen
 android-tether diagnose --json
 
-# RNDIS-Verbindung im Vordergrund starten
+# RNDIS-Verbindung im Vordergrund starten (Standard: Priorität 2,
+# also hinter dem aktuellen Default-Uplink)
 android-tether connect
 android-tether connect --device 1:5 --mtu 1500
-# Tether als primären Uplink verwenden, auch wenn WLAN aktiv bleibt
+# Tether ausdrücklich als primären Uplink verwenden, auch wenn WLAN aktiv bleibt
 android-tether connect --prefer
 # Nach einem Replug bis zu 120 s auf ein RNDIS-Gerät warten (0 = aus)
 android-tether connect --reconnect-timeout 120
+
+# Automatik als Benutzer-LaunchAgent: verbindet beim Anstecken und nach
+# einem Replug selbstständig, ohne Root für den Agenten
+android-tether install-agent
+android-tether status
+android-tether uninstall-agent
 
 # Status / Beenden / Aufräumen
 android-tether status --json
@@ -128,6 +135,14 @@ Beim Start werden nur die RNDIS-Control- und -Data-Interfaces beansprucht.
 Andere Interfaces (ADB, MTP, Laden) bleiben unangetastet. Ist ein Interface
 bereits von einem nativen Treiber belegt, bricht der Prototyp mit `usb_busy`
 ab, statt den Treiber zu entfernen.
+
+`install-agent` richtet einen LaunchAgent für den angemeldeten Benutzer ein.
+Der Agent wartet dauerhaft auf ein RNDIS-Gerät, verbindet beim Anstecken
+automatisch, räumt beim Abziehen auf und versucht es nach einem Replug erneut.
+Er läuft unprivilegiert; nur der separat installierte Helper ist Root.
+`disconnect` beendet die aktuelle Verbindung, der Agent startet sie bei
+angeschlossenem Gerät jedoch wieder. Zum dauerhaften Abschalten
+`android-tether uninstall-agent` verwenden.
 
 ### Synthetische Tests ohne Telefon
 
@@ -154,12 +169,12 @@ Der Helper legt über `scutil --prefs` einen Dienst mit fester UUID
 
 - `DeviceName = fethN`, `Hardware = Ethernet`, `Type = Ethernet`
 - IPv4 `ConfigMethod = DHCP`
-- Eintrag im aktuellen Netzwerk-Set; standardmäßig wird der Dienst **ans Ende**
-  der Dienstreihenfolge gehängt. Bei vorhandenem Uplink bleibt dessen Priorität
-  erhalten. Mit `connect --prefer` wird der Dienst stattdessen an den Anfang
-  gesetzt und wird damit primärer Uplink, auch wenn WLAN aktiv bleibt (belegt
-  in `docs/G2-VERIFICATION.md`). Beim Beenden verschwindet der Dienst und die
-  vorherige Reihenfolge gilt wieder.
+- Eintrag im aktuellen Netzwerk-Set. Standardmäßig wird der Dienst direkt
+  **hinter den aktuellen Default-Uplink** gesetzt (Priorität 2): WLAN oder
+  Ethernet bleibt primär, solange es eine Default Route hat; ohne andere
+  Default Route rückt der Tether nach vorne. Mit `connect --prefer` wird er
+  stattdessen primärer Uplink, auch wenn WLAN aktiv bleibt. Beim Beenden
+  verschwindet der Dienst und die vorherige Reihenfolge gilt wieder.
 - `feth` bleibt bis nach dem erfolgreichen RNDIS-Handshake administrativ down;
   erst dann wird der Link up geschaltet, damit macOS DHCP nicht verpasst.
 
@@ -174,10 +189,11 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 - USB-Deskriptoren und RNDIS-Nachrichten werden als nicht vertrauenswürdige
   Eingaben behandelt: Längen, Offsets, Alignment und Überläufe werden geprüft.
 - Der Root-Helper kennt nur feste Operationen (`CREATE`, `LINK`, `PREFER`,
-  `DESTROY`, `PING`, `STATUS`); er nimmt keine beliebigen Interface- oder
-  Dienstnamen an.
+  `FALLBACK`, `DESTROY`, `PING`, `STATUS`); er nimmt keine beliebigen
+  Interface- oder Dienstnamen an.
 - Der Unix-Socket ist auf den angegebenen Benutzer beschränkt; der Helper prüft
   zusätzlich die Peer-UID via `getpeereid`.
+- Der automatische Agent läuft als angemeldeter Benutzer, nicht als Root.
 - Logs enthalten keine Paketnutzdaten, Zugangsdaten oder Seriennummern.
   Gerätekennungen werden auf Bus/Adresse und VID/PID reduziert.
 - Keine Telemetrie, keine Cloud-Abhängigkeit.
@@ -186,10 +202,13 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 
 - **Nur RNDIS** wird aktiv implementiert. CDC-NCM und CDC-ECM werden erkannt und
   als native Delegation gemeldet; sie werden nicht vom eigenen Stack gefahren.
-- Der USB-Datenpfad ist synchron und single-threaded. Das ist für Korrektheit
-  ausreichend, aber kein Durchsatzoptimum: im realen Test wurden rund 50 KB/s
-  Download bzw. rund 280 KB/s Upload gemessen. Ein gepipeliner Datenpfad ist
-  die naheliegende nächste Optimierung.
+- Der USB-Datenpfad ist synchron und single-threaded. Die letzte reale
+  Messung lag bei rund 44 KB/s Download und 57 KB/s Upload sowie 0,5–1,5 s
+  Ping; damit ist Twitch nicht flüssig. Der Hot Path pollt Benachrichtigungen
+  jetzt nur noch alle 100 ms, wartet nicht mehr auf leere BPF-Frames und
+  bündelt Frames pro RNDIS-Transfer. Eine neue Hardware-Messung nach dieser
+  Optimierung steht noch aus; ein gepipeliner Datenpfad bleibt die nächste
+  Ausbaustufe.
 - Hotplug/Replug wird durch den Reconnect-Supervisor (`--reconnect-timeout`,
   Standard 60 s) behandelt: feth/BPF/Dienst bleiben bestehen, die Host-MAC
   wird gepinnt. Sleep/Wake ist über IOKit-Power-Benachrichtigungen angebunden
@@ -197,12 +216,14 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
   beides ist synthetisch getestet, aber noch nicht auf Hardware verifiziert.
 - IPv6 wird als Ethernet weitergeleitet, aber nicht separat verifiziert.
 - Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) wurde auf diesem Mac als
-  Root ausgeführt. `android-tether net-smoke --json` besteht alle zehn Checks
-  (feth-Paar, SCM_RIGHTS-BPF, Link up/down, Dienst, Cleanup).
+  Root ausgeführt. `android-tether net-smoke --json` besteht alle elf Checks
+  (feth-Paar, SCM_RIGHTS-BPF, Link up/down, Dienst, Priorität 2, Cleanup).
 - `android-tether-helper install` wurde als Root ausgeführt und der Helper
-  läuft als LaunchDaemon. `uninstall` ist implementiert, aber noch nicht in
-  einem eigenen Lauf geprüft. Signierung, Notarisierung und eine öffentliche
-  Verteilung sind nicht Teil dieses Prototyps.
+  läuft als LaunchDaemon. Der automatische LaunchAgent ist installiert und
+  wartet auf ein RNDIS-Gerät; der tatsächliche Ansteck-/Replug-Lauf mit
+  Hardware ist noch zu wiederholen. `uninstall` ist implementiert, aber noch
+  nicht in einem eigenen Lauf geprüft. Signierung, Notarisierung und eine
+  öffentliche Verteilung sind nicht Teil dieses Prototyps.
 
 ## Tests und CI
 

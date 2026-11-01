@@ -118,6 +118,12 @@ impl HelperClient {
         Ok(())
     }
 
+    /// Place the reserved service behind the current default uplink.
+    pub fn fallback(&mut self) -> Result<()> {
+        self.expect_ok("FALLBACK")?;
+        Ok(())
+    }
+
     pub fn destroy(&mut self) -> Result<()> {
         self.expect_ok("DESTROY")?;
         Ok(())

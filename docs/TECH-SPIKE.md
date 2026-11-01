@@ -97,18 +97,30 @@ schreibt deshalb die SystemConfiguration-Präferenzen direkt über
 - `Interface = { DeviceName: fethN, Hardware: Ethernet, Type: Ethernet }`
 - `IPv4 = { ConfigMethod: DHCP }`
 - Eintrag im aktuellen `/Sets/<set>/Network/Service/<uuid>`
-- Dienst wird standardmäßig an das Ende der `ServiceOrder` gehängt
-- `connect --prefer` setzt ihn über eine feste `PREFER`-Operation an den
+- Standard: `FALLBACK` setzt den Dienst direkt hinter den aktuellen
+  Default-Uplink (Priorität 2); ohne Default Route an den Anfang
+- `connect --prefer` setzt ihn über die feste `PREFER`-Operation an den
   Anfang; die Reihenfolge wird nach dem Commit erneut gelesen und geprüft
 - `commit` und `apply`, mit drei Versuchen bei parallel geänderten
   Präferenzen
 
 Damit übernimmt macOS DHCP, Router, DNS und die Primärinterface-Entscheidung.
-Ohne `--prefer` bleibt bei einem aktiven anderen Uplink dieser bevorzugt; mit
-`--prefer` wird der Tether primär, auch bei aktivem WLAN (Hardware-Nachweis in
-`docs/G2-VERIFICATION.md`). Der Dienst wird beim Beenden und bei
-Socket-Verlust des Helpers entfernt, wodurch auch die ursprüngliche
-Dienstreihenfolge ohne separaten Restore-Schritt wieder gilt.
+Ohne `--prefer` bleibt ein aktiver Default-Uplink bevorzugt; der Tether wird
+erst ohne andere Default Route primär. Mit `--prefer` wird er primär, auch bei
+aktivem WLAN (Hardware-Nachweis in `docs/G2-VERIFICATION.md`). Der Dienst wird
+beim Beenden und bei Socket-Verlust des Helpers entfernt, wodurch auch die
+ursprüngliche Dienstreihenfolge ohne separaten Restore-Schritt wieder gilt.
+
+## Automatischer Start
+
+`android-tether install-agent` legt einen Benutzer-LaunchAgent
+`all-the-rest.android-tether.auto` unter `~/Library/LaunchAgents` an und kopiert
+die CLI nach `~/Library/Application Support/android-tether/bin`. Der Agent
+startet `android-tether auto`, wartet auf ein RNDIS-Gerät und ruft für jede
+Session denselben `connect`-Pfad auf. Der Root-Helper bleibt unverändert der
+einzige privilegierte Teil; der Agent läuft mit Benutzerrechten. Bei
+`uninstall-agent` wird der Agent per `launchctl bootout` gestoppt und
+entfernt.
 
 **Warum nicht SystemConfiguration-FFI?** Der Präferenzbaum ist über
 `scutil --prefs` auditierbar und in einem schmalen Root-Helper gekapselt. Eine

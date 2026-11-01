@@ -4,6 +4,7 @@
 //! network-service setup is delegated to `android-tether-helper`; the helper
 //! passes only a configured BPF descriptor over a Unix socket.
 
+mod agent;
 mod helper_client;
 mod state;
 
@@ -95,6 +96,13 @@ enum Commands {
     Disconnect,
     /// Remove leftovers after a crashed session (requires the helper).
     Cleanup,
+    /// Install a per-user LaunchAgent that reconnects whenever the phone is
+    /// plugged in with USB tethering enabled.
+    InstallAgent,
+    /// Stop and remove the automatic connection LaunchAgent.
+    UninstallAgent,
+    /// Run the automatic connection supervisor in the foreground.
+    Auto,
     /// Run a deterministic, hardware-free RNDIS/Ethernet scenario.
     Simulate {
         /// basic, dhcp or faults.
@@ -139,6 +147,9 @@ fn run(cli: Cli) -> Result<()> {
         ),
         Commands::Disconnect => command_disconnect(cli.json, &cli.helper),
         Commands::Cleanup => command_cleanup(cli.json, &cli.helper),
+        Commands::InstallAgent => command_install_agent(&cli.helper),
+        Commands::UninstallAgent => command_uninstall_agent(),
+        Commands::Auto => command_auto(&cli.helper),
         Commands::Simulate { scenario } => command_simulate(cli.json, &scenario),
         Commands::NetSmoke => command_net_smoke(cli.json, &cli.helper),
     }
@@ -502,6 +513,64 @@ fn destroy_helper_session(helper_path: &Path) -> (bool, Option<String>) {
     }
 }
 
+fn command_install_agent(helper_path: &Path) -> Result<()> {
+    agent::install(helper_path)
+        .map_err(|error| TetherError::new(ErrorCategory::Configuration, error))
+}
+
+fn command_uninstall_agent() -> Result<()> {
+    agent::uninstall().map_err(|error| TetherError::new(ErrorCategory::Configuration, error))
+}
+
+/// Persistent, unprivileged supervisor used by the LaunchAgent.  It waits for
+/// an RNDIS device, runs one foreground connection, and repeats after unplug.
+fn command_auto(helper_path: &Path) -> Result<()> {
+    install_signal_handlers()?;
+    eprintln!("auto: waiting for an RNDIS tethering device");
+    let mut last_note = String::new();
+    while !STOP.load(Ordering::Relaxed) {
+        let note = match list_devices() {
+            Ok(devices) => match choose_device(&devices, None) {
+                Ok(device) => {
+                    let selector = format!("{}:{}", device.bus, device.address);
+                    eprintln!(
+                        "auto: connecting to {} ({})",
+                        device.display_name(),
+                        selector
+                    );
+                    match command_connect(true, helper_path, Some(selector), None, None, false, 0) {
+                        Ok(()) => "device disconnected; waiting".to_string(),
+                        Err(error) => format!(
+                            "connection ended: [{}] {}",
+                            error.category.as_str(),
+                            error.message
+                        ),
+                    }
+                }
+                Err(error) if error.category == ErrorCategory::UsbNotFound => {
+                    "no RNDIS tethering device; waiting".to_string()
+                }
+                Err(error) => format!(
+                    "device not usable: [{}] {}",
+                    error.category.as_str(),
+                    error.message
+                ),
+            },
+            Err(error) => format!("USB enumeration failed: {}", error.message),
+        };
+        if note != last_note && !STOP.load(Ordering::Relaxed) {
+            eprintln!("auto: {note}");
+            last_note = note;
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !STOP.load(Ordering::Relaxed) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    eprintln!("auto: stopped");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // diagnose
 
@@ -684,11 +753,14 @@ fn command_connect(
     }
 
     let created = helper.create(mtu, &host_mac.to_string())?;
-    if prefer {
-        if let Err(error) = helper.prefer() {
-            let _ = helper.destroy();
-            return Err(error);
-        }
+    let priority = if prefer {
+        helper.prefer()
+    } else {
+        helper.fallback()
+    };
+    if let Err(error) = priority {
+        let _ = helper.destroy();
+        return Err(error);
     }
     let bpf = match BpfSocket::from_raw_fd(created.fd, &created.peer_iface) {
         Ok(bpf) => bpf,
@@ -1255,6 +1327,21 @@ fn smoke_with_helper(helper_path: &Path) -> Result<Vec<Check>> {
         },
         if service_present { "pass" } else { "fail" },
     ));
+    let fallback = guard
+        .client
+        .as_mut()
+        .expect("client present")
+        .fallback()
+        .is_ok();
+    checks.push(check(
+        "fallback_priority",
+        if fallback {
+            "placed behind the current default uplink"
+        } else {
+            "could not update the service order"
+        },
+        if fallback { "pass" } else { "fail" },
+    ));
     guard.cleanup()?;
     let removed = wait_interface_absent(&created.host_iface, Duration::from_secs(3))?;
     checks.push(check(
@@ -1299,7 +1386,8 @@ impl Drop for SmokeGuard {
 // helpers
 
 fn install_signal_handlers() -> Result<()> {
-    STOP.store(false, Ordering::SeqCst);
+    // STOP is a one-shot latch.  `auto` calls this again through its nested
+    // connect call; resetting it there could lose a SIGTERM from launchd.
     for signal in [libc::SIGINT, libc::SIGTERM] {
         let previous =
             unsafe { libc::signal(signal, handle_signal as *const () as libc::sighandler_t) };

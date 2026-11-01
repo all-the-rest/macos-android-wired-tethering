@@ -140,6 +140,18 @@ impl NetworkService {
     pub fn prefer(&self, runner: &dyn PrefsRunner) -> Result<(), String> {
         prefer(runner)
     }
+
+    /// Place the reserved service directly behind the current default-route
+    /// service, or first when there is no default route.  This is the normal
+    /// "priority 2" behavior: an existing internet uplink stays preferred,
+    /// while the tether takes over when no other default route exists.
+    pub fn fallback(
+        &self,
+        runner: &dyn PrefsRunner,
+        default_interface: Option<&str>,
+    ) -> Result<(), String> {
+        fallback(runner, default_interface)
+    }
 }
 
 fn prefer(runner: &dyn PrefsRunner) -> Result<(), String> {
@@ -150,13 +162,92 @@ fn prefer(runner: &dyn PrefsRunner) -> Result<(), String> {
     let mut order = service_order(runner, &set)?;
     order.retain(|id| id != SERVICE_ID);
     order.insert(0, SERVICE_ID.to_string());
-    let script = format!("{}commit\napply\n", order_script(&set, &order));
+    write_order(runner, &set, &order, "move network service to the front")
+}
+
+fn fallback(runner: &dyn PrefsRunner, default_interface: Option<&str>) -> Result<(), String> {
+    if !exists(runner)? {
+        return Err("reserved network service is not present".to_string());
+    }
+    let set = current_set(runner)?;
+    let order = service_order(runner, &set)?;
+    let mut place_last = false;
+    let anchor = match default_interface {
+        None => None,
+        Some(interface) => match service_id_for_interface(runner, &order, interface)? {
+            Some(id) => Some(id),
+            None => {
+                // The default route may belong to a VPN/utun that has no
+                // matching network service.  The tether must still not stay
+                // ahead of it, so place it at the end.
+                place_last = true;
+                None
+            }
+        },
+    };
+    let mut updated = order;
+    updated.retain(|id| id != SERVICE_ID);
+    let insert_at = if place_last {
+        updated.len()
+    } else {
+        match anchor {
+            // Find the anchor again after removing our own entry: the old index
+            // shifts when the tether was already ahead of the default service.
+            Some(id) => updated
+                .iter()
+                .position(|candidate| candidate == &id)
+                .map(|index| index + 1)
+                .unwrap_or(updated.len()),
+            None => 0,
+        }
+    };
+    updated.insert(insert_at, SERVICE_ID.to_string());
+    write_order(
+        runner,
+        &set,
+        &updated,
+        "place network service behind the default uplink",
+    )
+}
+
+fn service_id_for_interface(
+    runner: &dyn PrefsRunner,
+    order: &[String],
+    interface: &str,
+) -> Result<Option<String>, String> {
+    for id in order {
+        if id == SERVICE_ID {
+            continue;
+        }
+        if service_device(runner, id)?.as_deref() == Some(interface) {
+            return Ok(Some(id.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn service_device(runner: &dyn PrefsRunner, id: &str) -> Result<Option<String>, String> {
+    let text = runner.prefs(&format!("get /NetworkServices/{id}/Interface\nd.show\n"))?;
+    Ok(text.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("DeviceName : ")
+            .map(|value| value.trim().to_string())
+    }))
+}
+
+fn write_order(
+    runner: &dyn PrefsRunner,
+    set: &str,
+    order: &[String],
+    description: &str,
+) -> Result<(), String> {
+    let script = format!("{}commit\napply\n", order_script(set, order));
     let mut last_error = None;
     for _ in 0..3 {
         match runner.prefs(&script) {
             Ok(_) => {
-                let updated = service_order(runner, &set).unwrap_or_default();
-                if updated.first().map(String::as_str) == Some(SERVICE_ID) {
+                let updated = service_order(runner, set).unwrap_or_default();
+                if updated == order {
                     return Ok(());
                 }
                 last_error = Some("service order did not change".to_string());
@@ -166,7 +257,7 @@ fn prefer(runner: &dyn PrefsRunner) -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
     Err(format!(
-        "could not move network service to the front: {}",
+        "could not {description}: {}",
         last_error.unwrap_or_else(|| "unknown error".to_string())
     ))
 }
@@ -341,6 +432,9 @@ mod tests {
             if script.contains(&format!("d.add ServiceOrder * {SERVICE_ID} OTHER-SERVICE")) {
                 *preferred = true;
             }
+            if script.contains(&format!("d.add ServiceOrder * OTHER-SERVICE {SERVICE_ID}")) {
+                *preferred = false;
+            }
             if script.contains(&format!("remove /NetworkServices/{SERVICE_ID}")) {
                 *present = false;
                 *preferred = false;
@@ -367,6 +461,9 @@ mod tests {
                 } else {
                     output.push_str("ServiceOrder : <array> {\n  0 : OTHER-SERVICE\n}\n");
                 }
+            }
+            if script.contains("get /NetworkServices/OTHER-SERVICE/Interface") {
+                output.push_str("DeviceName : en0\n");
             }
             if script.contains("list /NetworkServices") && *present {
                 output.push_str(&format!("subKey = {SERVICE_ID}\n"));
@@ -417,6 +514,62 @@ mod tests {
             interface: "feth100".into(),
         };
         assert!(service.prefer(&runner).is_err());
+    }
+
+    #[test]
+    fn fallback_places_service_after_the_default_interface() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        service.fallback(&runner, Some("en0")).unwrap();
+        let combined = runner.scripts.borrow().join("\n---\n");
+        assert!(combined.contains(&format!("d.add ServiceOrder * OTHER-SERVICE {SERVICE_ID}")));
+    }
+
+    #[test]
+    fn fallback_moves_tether_directly_behind_default_when_tether_was_first() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        *runner.preferred.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        service.fallback(&runner, Some("en0")).unwrap();
+        assert!(!*runner.preferred.borrow());
+        let combined = runner.scripts.borrow().join("\n---\n");
+        assert!(combined.contains(&format!("d.add ServiceOrder * OTHER-SERVICE {SERVICE_ID}")));
+    }
+
+    #[test]
+    fn fallback_promotes_service_when_no_default_route_exists() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        service.fallback(&runner, None).unwrap();
+        let combined = runner.scripts.borrow().join("\n---\n");
+        assert!(combined.contains(&format!("d.add ServiceOrder * {SERVICE_ID} OTHER-SERVICE")));
+    }
+
+    #[test]
+    fn fallback_moves_tether_to_the_end_for_an_unknown_default_interface() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        *runner.preferred.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        service.fallback(&runner, Some("utun9")).unwrap();
+        assert!(!*runner.preferred.borrow());
+        let combined = runner.scripts.borrow().join("\n---\n");
+        assert!(combined.contains(&format!("d.add ServiceOrder * OTHER-SERVICE {SERVICE_ID}")));
     }
 
     #[test]

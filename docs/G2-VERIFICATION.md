@@ -27,7 +27,7 @@ besteht.
 | Authenticated Root | `enabled` |
 | Rust | rustc/cargo 1.99.1, Ziel `aarch64-apple-darwin` |
 | Build | Release, `cargo build --release --target aarch64-apple-darwin --workspace` |
-| Helper | LaunchDaemon `io.github.android-tether.helper`, läuft als Root |
+| Helper | LaunchDaemon `all-the-rest.android-tether.helper`, läuft als Root |
 | Commit | HEAD des Fix-Commits; exakter Wert in `target/g1-report.json` und `git log -1` |
 
 ## Gerät
@@ -83,7 +83,7 @@ Der Helper wurde mit `android-tether-helper install --allow-uid 501` als
 LaunchDaemon installiert und gestartet:
 
 ```text
-launchctl print system/io.github.android-tether.helper
+launchctl print system/all-the-rest.android-tether.helper
   state = running
   program = /Library/PrivilegedHelperTools/android-tether-helper
   properties = keepalive | runatload
@@ -180,6 +180,39 @@ Nach `disconnect` war der Dienst entfernt, die Default Route lag wieder auf
 `en0` (`<wifi-gateway>`), und es blieben keine `feth`-Interfaces oder
 Tether-Dienste zurück.
 
+### 2b. Standard-Priorität 2 und automatischer Start
+
+Ohne `--prefer` verwendet `connect` die feste Helper-Operation `FALLBACK`.
+Der Helper liest die aktuelle Default-Route, sucht den zugehörigen Dienst
+und setzt den Tether direkt dahinter. Bei Default-Route über `en0` bleibt
+WLAN also primär, der Tether ist die zweite Wahl; existiert keine Default
+Route, rückt er an die erste Stelle. `net-smoke` prüft diesen Pfad auf dem
+echten System und besteht jetzt **11/11** Checks
+(`fallback_priority`, `target/g1/net-smoke.json`).
+
+Für den Dauerbetrieb ist ein Benutzer-LaunchAgent installiert:
+
+```text
+launchctl print gui/501/all-the-rest.android-tether.auto
+  state = running
+  program = ~/Library/Application Support/android-tether/bin/android-tether
+  arguments = ... --helper /var/run/android-tether-helper.sock auto
+  plist = ~/Library/LaunchAgents/all-the-rest.android-tether.auto.plist
+```
+
+Der Agent läuft unprivilegiert, wartet auf ein RNDIS-Gerät und startet
+`connect` mit Priorität 2. Beim Abziehen räumt der Verbindungsprozess auf;
+der Agent wartet auf den nächsten Replug. Im Log stand nach der Installation:
+
+```text
+auto: waiting for an RNDIS tethering device
+auto: no RNDIS tethering device; waiting
+```
+
+Der tatsächliche Ansteck-/Replug-Lauf mit dem Telefon war zu diesem Zeitpunkt
+noch offen, weil das Gerät abgezogen war. Der Agent ist installiert und
+laufbereit; der Nachweis muss nach dem nächsten Anstecken ergänzt werden.
+
 ### 3. Betrieb ohne anderen Internet-Uplink (G2-Kriterium 3)
 
 WLAN (`en0`) wurde für den Test abgeschaltet. Danach war `feth100` die einzige
@@ -218,13 +251,17 @@ Uplink belegt, während der Mac keinen anderen Internet-Uplink hatte.
 
 | Test | Ergebnis |
 |---|---|
-| 1 MB Upload zu `https://speed.cloudflare.com/__up` | HTTP 200, 1.048.576 Bytes, 3,7 s |
-| 1 MB Download von `https://speed.cloudflare.com/__down?bytes=1000000` | HTTP 200, 1.000.000 Bytes, 18,8 s (~53 KB/s) |
+| 1 MB Upload zu `https://speed.cloudflare.com/__up` | HTTP 200, 1.000.000 Bytes, 17,6 s (~57 KB/s) |
+| 1 MB Download von `https://speed.cloudflare.com/__down?bytes=1000000` | HTTP 200, 1.000.000 Bytes, 22,7 s (~44 KB/s) |
 | 10 MB Download | nach 60 s abgebrochen (2,7 MB), kein Fehler der Verbindung |
 
-Der Durchsatz ist niedrig, weil der Datenpfad synchron und single-threaded ist
-und pro Iteration nur einen USB-Bulk-Transfer bzw. einen BPF-Frame verarbeitet.
-Das ist als Optimierung dokumentiert, nicht als Korrektheitsfehler.
+Der Durchsatz ist für Twitch zu niedrig; auch der Ping lag im gleichen Lauf
+bei 0,5–1,5 s. Der Datenpfad ist synchron und single-threaded. Der Hot Path
+pollt Benachrichtigungen jetzt nur noch alle 100 ms, wartet nicht mehr auf
+leere BPF-Frames und bündelt Frames in einem RNDIS-Transfer. Eine neue
+Messung nach dieser Optimierung steht aus, weil das Gerät beim Test abgezogen
+wurde. Das ist als offene Performance-Arbeit dokumentiert, nicht als
+Korrektheitsfehler.
 
 ### 5. Langzeit- und Fehlerfälle
 
@@ -235,6 +272,9 @@ Das ist als Optimierung dokumentiert, nicht als Korrektheitsfehler.
 | erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
 | Replug, Tethering aus/an, Sleep/Wake (je 3×) | **noch offen** |
 | `connect --prefer` mit aktivem WLAN | **bestanden**: `feth100` primär, HTTP 200 ohne Interface-Bindung, WLAN blieb aktiv |
+| Standard-Priorität 2 (`FALLBACK`) | **bestanden** im `net-smoke`: Dienst hinter dem Default-Uplink einsortiert |
+| Auto-Agent installiert und wartend | **bestanden**: LaunchAgent `running`, Log zeigt Warten auf RNDIS |
+| Auto-Connect beim echten Anstecken | **noch offen** (Gerät beim Test abgezogen) |
 | echter Gerätewechsel | **noch offen** |
 
 ### 6. Cleanup
