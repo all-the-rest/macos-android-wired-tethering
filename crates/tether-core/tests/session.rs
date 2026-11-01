@@ -1,6 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tether_core::engine::{EngineConfig, TetherEngine};
+use tether_core::engine::{EngineConfig, PowerHooks, TetherEngine};
 use tether_core::error::ErrorCategory;
 use tether_core::ethernet::{self, MacAddr};
 use tether_core::net::{FrameIo, MockFrameIo};
@@ -137,6 +138,35 @@ fn maximum_total_size_clamps_frame_size() {
         .warnings
         .iter()
         .any(|warning| warning.contains("MAXIMUM_TOTAL_SIZE")));
+}
+
+#[test]
+fn sleep_and_wake_events_update_link_and_reinitialize() {
+    let (host, _) = macs();
+    let device = MockRndisDevice::new().with_host_mac(host.0);
+    let mut engine = TetherEngine::new(
+        RndisSession::new(device, &mock_function(true), short_config()).unwrap(),
+        MockFrameIo::new(),
+        EngineConfig::default(),
+    );
+    engine.initialize().unwrap();
+    let sleeping = AtomicBool::new(true);
+    let wake = AtomicBool::new(false);
+    let hooks = PowerHooks {
+        sleeping: Some(&sleeping),
+        wake: Some(&wake),
+    };
+
+    engine.handle_power_event(&hooks).unwrap();
+    assert!(!engine.bridge().link_up());
+    assert_eq!(engine.stats().last_error.as_deref(), Some("system_sleep"));
+
+    sleeping.store(false, Ordering::SeqCst);
+    wake.store(true, Ordering::SeqCst);
+    engine.handle_power_event(&hooks).unwrap();
+    assert!(engine.bridge().link_up());
+    assert_eq!(engine.session().stats().resets, 1);
+    assert_eq!(engine.stats().last_error.as_deref(), Some("system_wake"));
 }
 
 #[test]

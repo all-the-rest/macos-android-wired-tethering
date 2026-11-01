@@ -17,12 +17,13 @@ use std::time::{Duration, Instant};
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 use tether_core::descriptor::{host_mac_from_key, valid_host_mac, DetectedFunction, SupportLevel};
-use tether_core::engine::{EngineConfig, EngineStats, TetherEngine};
+use tether_core::engine::{EngineConfig, EngineStats, PowerHooks, TetherEngine};
 use tether_core::error::{ErrorCategory, Result, TetherError};
 use tether_core::ethernet::{parse_mac, MacAddr};
 use tether_core::rndis::session::{RndisSession, SessionConfig, SessionInfo};
 use tether_core::testkit::{run_simulation, Scenario};
 use tether_macos::bpf::BpfSocket;
+use tether_macos::power::PowerMonitor;
 use tether_macos::service::SERVICE_ID;
 use tether_usb::discover::{list_devices, open_rndis, resolve_selector, DeviceInfo};
 use tether_usb::transport::LibusbTransport;
@@ -677,6 +678,20 @@ fn command_connect(
         }
     };
     let bridge = RemoteFrameIo::new(bpf, helper);
+    let power = match PowerMonitor::start() {
+        Ok(power) => Some(power),
+        Err(error) => {
+            eprintln!("warning: sleep/wake notifications unavailable: {error}");
+            None
+        }
+    };
+    let power_hooks = power
+        .as_ref()
+        .map(|power| PowerHooks {
+            sleeping: Some(power.sleeping_flag()),
+            wake: Some(power.wake_flag()),
+        })
+        .unwrap_or_default();
     let mut engine = TetherEngine::new(session, bridge, EngineConfig::default());
     let engine_info = match engine.initialize() {
         Ok(info) => info,
@@ -723,7 +738,7 @@ fn command_connect(
     }
 
     let mut total_reconnects = 0u64;
-    let result = engine.run(&STOP, |stats| {
+    let result = engine.run_with_power(&STOP, power_hooks, |stats| {
         update_runtime(&mut runtime, stats);
         runtime.reconnects = total_reconnects + stats.reconnects;
         if let Err(error) = write_state(&runtime) {
@@ -832,7 +847,7 @@ fn command_connect(
             eprintln!("warning: cannot update state: {}", error.message);
         }
         let base = total_reconnects;
-        let result = engine.run(&STOP, |stats| {
+        let result = engine.run_with_power(&STOP, power_hooks, |stats| {
             update_runtime(&mut runtime, stats);
             runtime.reconnects = base + stats.reconnects;
             if let Err(error) = write_state(&runtime) {

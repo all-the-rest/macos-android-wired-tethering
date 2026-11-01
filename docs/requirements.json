@@ -102,12 +102,13 @@
       "evidence": [
         "crates/tether-core/src/engine.rs",
         "crates/tether-core/src/testkit.rs (reconnect scenario)",
-        "crates/tether-core/tests/session.rs",
+        "crates/tether-core/tests/session.rs (sleep/wake + reconnect)",
+        "crates/tether-macos/src/power.rs",
         "crates/tether-helper/src/main.rs",
         "crates/tether-cli/src/main.rs (reconnect supervisor, host MAC pinning)"
       ],
       "gaps": [
-        "sleep/wake and real replug/device swap not tested on hardware",
+        "sleep/wake, replug and device swap are implemented and synthetically tested but not hardware-verified",
         "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect"
       ]
     },

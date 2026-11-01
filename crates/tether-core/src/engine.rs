@@ -38,6 +38,14 @@ impl Default for EngineConfig {
     }
 }
 
+/// Optional sleep/wake flags supplied by a platform power monitor.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PowerHooks<'a> {
+    pub sleeping: Option<&'a AtomicBool>,
+    /// Set by the platform callback when the system has resumed.
+    pub wake: Option<&'a AtomicBool>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EngineStats {
     pub frames_phone_to_host: u64,
@@ -170,10 +178,45 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
         Ok(())
     }
 
+    /// React to a platform sleep/wake event.
+    ///
+    /// Sleep marks the host link down.  Wake forces a RESET followed by a full
+    /// re-initialization, so USB state that did not survive sleep is rebuilt.
+    /// A failed wake recovery is returned to the caller, which can hand the
+    /// device to the reconnect supervisor.
+    pub fn handle_power_event(&mut self, hooks: &PowerHooks<'_>) -> Result<()> {
+        if let Some(sleeping) = hooks.sleeping {
+            if sleeping.load(Ordering::SeqCst) {
+                self.bridge.set_link(false)?;
+                self.stats.last_error = Some("system_sleep".to_string());
+            }
+        }
+        if let Some(wake) = hooks.wake {
+            if wake.swap(false, Ordering::SeqCst) {
+                self.stats.last_error = Some("system_wake".to_string());
+                self.recover()?;
+            }
+        }
+        Ok(())
+    }
+
     /// Run until `stop` is set.  Transient failures are retried with a bounded
     /// number of attempts and a fixed backoff; unplug and programming errors
     /// are returned to the caller.
-    pub fn run<F>(&mut self, stop: &AtomicBool, mut on_stats: F) -> Result<()>
+    pub fn run<F>(&mut self, stop: &AtomicBool, on_stats: F) -> Result<()>
+    where
+        F: FnMut(&EngineStats),
+    {
+        self.run_with_power(stop, PowerHooks::default(), on_stats)
+    }
+
+    /// Like [`run`](Self::run) but also reacts to sleep/wake flags.
+    pub fn run_with_power<F>(
+        &mut self,
+        stop: &AtomicBool,
+        power: PowerHooks<'_>,
+        mut on_stats: F,
+    ) -> Result<()>
     where
         F: FnMut(&EngineStats),
     {
@@ -181,7 +224,8 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
         let mut last_report = Instant::now();
         on_stats(&self.stats);
         while !stop.load(Ordering::Relaxed) {
-            match self.step() {
+            let result = self.handle_power_event(&power).and_then(|_| self.step());
+            match result {
                 Ok(report) => {
                     if report.idle {
                         thread::sleep(self.config.idle_sleep);

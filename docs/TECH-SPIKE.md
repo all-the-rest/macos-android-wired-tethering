@@ -64,6 +64,24 @@ zu einer langen Link-Local-Wartezeit führen.
   ein DriverKit-Ersatz ist in `PLAN.md` als separate Machbarkeitsfrage
   beschrieben.
 
+## Sleep/Wake: IOKit-Power-Benachrichtigungen
+
+`command_connect` registriert sich über `IORegisterForSystemPower` für
+System-Power-Events. Die Callbacks laufen auf einer globalen Dispatch-Queue und
+setzen atomare Flags:
+
+- `kIOMessageSystemWillSleep`: Host-Link wird down geschaltet; der Callback
+  quittiert mit `IOAllowPowerChange`.
+- `kIOMessageSystemHasPoweredOn`: die Engine führt RESET und vollständige
+  RNDIS-Reinitialisierung aus. Schlägt das fehl, übernimmt der Reconnect-
+  Supervisor.
+- `kIOMessageCanSystemSleep` wird nur quittiert, ohne den Link zu ändern.
+
+Die Registrierung benötigt keine Root-Rechte. Der Monitor wird beim Beenden
+wieder abgemeldet (`IODeregisterForSystemPower`,
+`IONotificationPortDestroy`, `IOServiceClose`). Die FFI-Grenze liegt
+ausschließlich in `tether-macos/src/power.rs`.
+
 ## Netzwerkdienst: `scutil --prefs`
 
 `networksetup -createnetworkservice <name> <hardware-port>` funktioniert für

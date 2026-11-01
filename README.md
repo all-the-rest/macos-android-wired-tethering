@@ -179,9 +179,10 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 - Der USB-Datenpfad ist synchron und single-threaded. Das ist für Korrektheit
   und den synthetischen Nachweis ausreichend, aber kein Durchsatzoptimum.
 - Hotplug/Replug wird durch den Reconnect-Supervisor (`--reconnect-timeout`,
-  Standard 60 s) teilweise behandelt: feth/BPF/Dienst bleiben bestehen, die
-  Host-MAC wird gepinnt. Sleep/Wake und Langzeitbetrieb sind nicht auf Hardware
-  verifiziert.
+  Standard 60 s) behandelt: feth/BPF/Dienst bleiben bestehen, die Host-MAC
+  wird gepinnt. Sleep/Wake ist über IOKit-Power-Benachrichtigungen angebunden
+  (Link down bei `WillSleep`, RESET/Reinitialisierung bei `HasPoweredOn`);
+  beides ist synthetisch getestet, aber nicht auf Hardware verifiziert.
 - IPv6 wird als Ethernet weitergeleitet, aber nicht separat verifiziert.
 - Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) ist in dieser Umgebung
   nicht als Root ausgeführt worden. Der entsprechende `net-smoke` ist

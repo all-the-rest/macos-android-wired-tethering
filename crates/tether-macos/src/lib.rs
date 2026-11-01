@@ -10,4 +10,5 @@ pub mod bpf;
 pub mod command;
 pub mod feth;
 pub mod ipc;
+pub mod power;
 pub mod service;

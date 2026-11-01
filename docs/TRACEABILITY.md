@@ -14,7 +14,7 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 | F-04 CDC-NCM | `descriptor.rs::classify_configuration` erkennt `02/0D/00`, NCM-Funktionaldeskriptor, Dateninterface und Bulk-Paare; `DetectedFunction` meldet `DelegateNative` | `tests/descriptors.rs::identifies_ncm_and_delegates_to_native_driver` | S-03, S-04, S-05 |
 | F-05 CDC-ECM | Erkennung `02/06/00` + Ethernet-Funktionaldeskriptor; Delegation | `tests/descriptors.rs::identifies_ecm_and_delegates_to_native_driver` | S-03, S-05 |
 | F-06 Netzwerkintegration | `tether-core/src/net.rs` (FrameIo), `engine.rs`; `tether-macos/src/feth.rs`, `bpf.rs`, `service.rs`; macOS-DHCP/DNS/Routen durch Systemdienst; `state.rs` liest die vergebene IPv4-Adresse für `status` | `tests/session.rs` Basic/DHCP/Faults; `packet.rs` Reassembly; `feth.rs`/`service.rs`/`bpf.rs` Unit-Tests; `android-tether net-smoke` (benötigt Root-Helper) | S-07 soweit relevant; PLAN F-06 |
-| F-07 Lebenszyklus | `engine.rs` (Link-Status, Reset, begrenzte Reconnect-Versuche, Halt, Link down), `tether-cli` Reconnect-Supervisor (feth/BPF bleibt erhalten, Host-MAC wird gepinnt, Timeout per `--reconnect-timeout`), `testkit.rs` Reconnect-Szenario, `tether-helper` räumt bei Socket-Ende auf, `cli disconnect/cleanup` | `tests/session.rs::engine_recovers_from_a_transient_transfer_error`, `engine_run_stops_and_marks_link_down`, `media_indications_update_link_state`, `repeated_reset_and_initialize_cycles_stay_correlated`, `pinned_host_mac_overrides_the_device_value`, `reconnect_simulation_reuses_bridge_and_pins_host_mac`; **Lücken:** Sleep/Wake, realer Replug und Gerätewechsel nicht auf Hardware getestet | S-01 §3.1; PLAN F-07 |
+| F-07 Lebenszyklus | `engine.rs` (Link-Status, Reset, begrenzte Reconnect-Versuche, Halt, Link down, `PowerHooks`), `tether-macos/src/power.rs` (IOKit `WillSleep`/`HasPoweredOn`), `tether-cli` Reconnect-Supervisor (feth/BPF bleibt erhalten, Host-MAC wird gepinnt, Timeout per `--reconnect-timeout`), `testkit.rs` Reconnect-Szenario, `tether-helper` räumt bei Socket-Ende auf, `cli disconnect/cleanup` | `tests/session.rs::engine_recovers_from_a_transient_transfer_error`, `engine_run_stops_and_marks_link_down`, `media_indications_update_link_state`, `repeated_reset_and_initialize_cycles_stay_correlated`, `pinned_host_mac_overrides_the_device_value`, `reconnect_simulation_reuses_bridge_and_pins_host_mac`, `sleep_and_wake_events_update_link_and_reinitialize`; `power::tests`; **Lücken:** realer Sleep/Wake, Replug und Gerätewechsel nicht auf Hardware getestet | S-01 §3.1; PLAN F-07 |
 | F-08 Diagnostik | `tether-cli/src/main.rs`: `list`, `status`, `diagnose`, `connect`, `disconnect`, `cleanup`, `simulate`, `net-smoke`; `state.rs` ohne Seriennummern | CLI-Läufe in `docs/G1-VERIFICATION.md`; `state.rs` Unit-Test; `simulate --json` | PLAN F-08 |
 | F-09 Installation/Deinstallation | arm64-Build dokumentiert; Helper mit festen Operationen; fester Service-UUID; `cleanup` entfernt nur eigene UUID; `android-tether-helper install/uninstall` verwaltet ein LaunchDaemon mit festem Label und entfernt den reservierten Dienst | `feth.rs`/`service.rs` Cleanup-Tests, `install.rs` plist-Tests, `net-smoke` Cleanup-Check (skipped ohne Root); **Lücke:** Signierung/Notarisierung, kein realer Installationslauf | PLAN F-09, N-06 |
 
@@ -39,7 +39,7 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 | T-04 Negativ/Sicherheit | `tests/negative.rs`, `tests/properties.rs`, Fuzz-Targets | bestanden; Fuzz-Läufe in `docs/G1-VERIFICATION.md` |
 | T-05 Zustandsmaschine | `tests/session.rs` | bestanden; Init/Query/Set/Filter/Keepalive/Reset/Reinit/Link-Indications/Recovery |
 | T-06 Host-Brücke | `testkit.rs`, `simulate`; `bpf.rs`/`feth.rs`/`service.rs`; `net-smoke` | Mock-Integration bestanden; macOS-Runtime-Smoke **skipped** (Root-Helper nicht gestartet) |
-| T-07 Betrieb | `engine_run_stops...`, wiederholte Reset-Zyklen, Fuzz | teilweise; keine Langzeit-/Sleep-Wake-/Hotplug-Tests |
+| T-07 Betrieb | `engine_run_stops...`, wiederholte Reset-Zyklen, Sleep/Wake-Hooks, Reconnect-Szenario, Fuzz | synthetisch bestanden; keine Langzeit-/Hardware-Sleep-Wake-/Replug-Tests |
 | T-08 NCM/ECM | `tests/descriptors.rs` | bestanden für Klassifikation/Delegation; kein eigener NCM/ECM-Stack (bewusst) |
 
 ## Quellenbezug
@@ -65,7 +65,8 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 1. Kein Lauf gegen ein echtes Android-/Samsung-Gerät; keine DHCP-/DNS-/HTTPS-
    Verifikation über Mobilfunk.
 2. `net-smoke` und `connect` wurden ohne Root-Helper nicht real ausgeführt.
-3. Kein Hotplug-/Sleep-Wake-/Langzeit-Test.
+3. Kein Hardware-Sleep/Wake-/Replug-/Langzeit-Test; die IOKit-Power-Hooks und
+   der Reconnect-Supervisor sind synthetisch getestet.
 4. NCM/ECM werden nicht selbst gefahren; Delegation an macOS ist nur
    klassifiziert, nicht auf Hardware geprüft.
 5. Keine Coverage-Messung; Fuzzing lief zeitlich begrenzt (ca. 8–9 s je Target).
