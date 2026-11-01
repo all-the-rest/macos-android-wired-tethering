@@ -27,6 +27,12 @@ mod install;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
+type BpfOpener = fn(&str) -> tether_core::error::Result<BpfSocket>;
+
+fn system_bpf(interface: &str) -> tether_core::error::Result<BpfSocket> {
+    BpfSocket::open(interface)
+}
+
 extern "C" fn stop_handler(_signal: libc::c_int) {
     STOP.store(true, Ordering::SeqCst);
 }
@@ -157,7 +163,7 @@ fn serve(socket_path: &Path, allow_uid: Option<u32>) -> Result<(), String> {
     while !STOP.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _address)) => {
-                if let Err(error) = handle_client(stream, allow_uid, &runner, &prefs) {
+                if let Err(error) = handle_client(stream, allow_uid, &runner, &prefs, system_bpf) {
                     eprintln!("android-tether-helper: client error: {error}");
                 }
             }
@@ -179,6 +185,7 @@ fn handle_client(
     allow_uid: u32,
     runner: &dyn CommandRunner,
     prefs: &dyn PrefsRunner,
+    bpf_opener: BpfOpener,
 ) -> Result<(), String> {
     let (uid, _gid) =
         peer_credentials(&stream).map_err(|error| format!("peer credentials: {error}"))?;
@@ -236,7 +243,14 @@ fn handle_client(
         let command = parts.next().unwrap_or_default();
         let result = match command {
             "PING" => channel.send_line("OK pong").map_err(|e| e.to_string()),
-            "CREATE" => handle_create(&mut session, &mut channel, &mut parts, runner, prefs),
+            "CREATE" => handle_create(
+                &mut session,
+                &mut channel,
+                &mut parts,
+                runner,
+                prefs,
+                bpf_opener,
+            ),
             "LINK" => handle_link(&session, &mut channel, &mut parts, runner),
             "DESTROY" => {
                 if let Some(resources) = session.take() {
@@ -282,6 +296,7 @@ fn handle_create(
     parts: &mut std::str::SplitWhitespace<'_>,
     runner: &dyn CommandRunner,
     prefs: &dyn PrefsRunner,
+    bpf_opener: BpfOpener,
 ) -> Result<(), String> {
     if session.is_some() {
         channel
@@ -317,7 +332,7 @@ fn handle_create(
             return Ok(());
         }
     };
-    let bpf = match BpfSocket::open(&pair.peer_iface) {
+    let bpf = match bpf_opener(&pair.peer_iface) {
         Ok(bpf) => bpf,
         Err(error) => {
             let _ = service.remove(prefs);
@@ -495,14 +510,61 @@ mod tests {
     #[derive(Default)]
     struct FakePrefs {
         scripts: RefCell<Vec<String>>,
+        present: RefCell<bool>,
     }
 
     impl PrefsRunner for FakePrefs {
         fn prefs(&self, script: &str) -> Result<String, String> {
             self.scripts.borrow_mut().push(script.to_string());
-            // Simulate a machine without the reserved network service.
-            Ok(String::new())
+            let service_id = tether_macos::service::SERVICE_ID;
+            let mut output = String::new();
+            if script.contains("list /NetworkServices") && *self.present.borrow() {
+                output.push_str(&format!("subKey = {service_id}\n"));
+            }
+            if script.contains("get /") && script.contains("d.show") {
+                output.push_str("CurrentSet : /Sets/ABCD\n");
+            }
+            if script.contains("get /Sets/ABCD/Network/Global/IPv4") {
+                output.push_str("ServiceOrder : <array> {\n  0 : OTHER-SERVICE\n}\n");
+            }
+            if script.contains("list /Sets") {
+                output.push_str("subKey = /Sets/ABCD\n");
+            }
+            if script.contains(&format!("set /NetworkServices/{service_id}"))
+                && script.contains("commit")
+            {
+                *self.present.borrow_mut() = true;
+            }
+            if script.contains(&format!("remove /NetworkServices/{service_id}")) {
+                *self.present.borrow_mut() = false;
+            }
+            Ok(output)
         }
+    }
+
+    struct FethRunner;
+
+    impl CommandRunner for FethRunner {
+        fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
+            if program == "/sbin/ifconfig" && args.len() == 1 && args[0] == "-l" {
+                Ok("lo0".to_string())
+            } else {
+                Ok(String::new())
+            }
+        }
+    }
+
+    fn fake_bpf(interface: &str) -> tether_core::error::Result<BpfSocket> {
+        let mut fds = [0; 2];
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            return Err(tether_core::error::TetherError::network(
+                "cannot create test pipe",
+            ));
+        }
+        // The helper only passes the descriptor; the read end is enough to
+        // exercise SCM_RIGHTS without touching /dev/bpf.
+        unsafe { libc::close(fds[1]) };
+        BpfSocket::from_raw_fd(fds[0], interface)
     }
 
     #[test]
@@ -517,7 +579,7 @@ mod tests {
         let uid = unsafe { libc::getuid() };
         let handle = thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
-            handle_client(stream, uid, &NoopRunner, &FakePrefs::default())
+            handle_client(stream, uid, &NoopRunner, &FakePrefs::default(), fake_bpf)
         });
 
         let mut stream = UnixStream::connect(&socket).expect("connect");
@@ -542,6 +604,84 @@ mod tests {
         drop(send);
         drop(reader);
         drop(stream);
+        handle
+            .join()
+            .expect("helper thread")
+            .expect("helper result");
+        let _ = std::fs::remove_file(&socket);
+    }
+
+    #[test]
+    fn helper_create_link_status_destroy_orchestration() {
+        let socket = std::path::PathBuf::from(format!(
+            "/tmp/android-tether-helper-create-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("bind test socket");
+        let uid = unsafe { libc::getuid() };
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            handle_client(stream, uid, &FethRunner, &FakePrefs::default(), fake_bpf)
+        });
+
+        let stream = UnixStream::connect(&socket).expect("connect");
+        let mut channel = FdChannel::new(stream);
+        channel
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("read timeout");
+        channel
+            .send_line(&format!("HELLO {PROTOCOL_VERSION}"))
+            .expect("hello");
+        assert!(channel
+            .recv_line()
+            .expect("welcome")
+            .expect("welcome line")
+            .starts_with("OK "));
+
+        channel
+            .send_line("CREATE 1500 02:00:00:00:00:42")
+            .expect("create");
+        let response = channel
+            .recv_line()
+            .expect("create response")
+            .expect("create line");
+        assert!(response.starts_with("OK feth100 feth1100 "), "{response}");
+        let fd = channel.take_fd().expect("bpf descriptor");
+        unsafe { libc::close(fd) };
+
+        channel.send_line("STATUS").expect("status");
+        assert_eq!(
+            channel.recv_line().expect("status response").expect("line"),
+            format!("OK feth100 feth1100 {DEFAULT_SERVICE_NAME}")
+        );
+
+        channel.send_line("LINK up").expect("link up");
+        assert_eq!(
+            channel
+                .recv_line()
+                .expect("link up response")
+                .expect("line"),
+            "OK link-up"
+        );
+        channel.send_line("LINK down").expect("link down");
+        assert_eq!(
+            channel
+                .recv_line()
+                .expect("link down response")
+                .expect("line"),
+            "OK link-down"
+        );
+
+        channel.send_line("DESTROY").expect("destroy");
+        assert_eq!(
+            channel
+                .recv_line()
+                .expect("destroy response")
+                .expect("line"),
+            "OK destroyed"
+        );
+        drop(channel);
         handle
             .join()
             .expect("helper thread")
