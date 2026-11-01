@@ -122,7 +122,7 @@
         "real sleep/wake cycle: system_sleep -> system_wake, reconnects=1, session restored"
       ],
       "gaps": [
-        "two more hardware sleep/wake repetitions are still open",
+        "two more hardware sleep/wake repetitions were not run; the user accepted G2 with the current data",
         "tethering off/on was run 3x by the user; only one full session rebuild is visible in the monitor log",
         "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect",
         "hardware device swap is still open"

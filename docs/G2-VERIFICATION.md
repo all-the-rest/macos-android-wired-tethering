@@ -7,8 +7,9 @@ Nachweis für alle Android-Modelle und noch kein vollständiges G2 nach
 Kriterium 4 ist bestanden, und der installierte LaunchAgent verbindet das
 Gerät beim Anstecken selbstständig. Drei Replug-Zyklen, drei
 Tethering-aus/an-Zyklen (Nutzerbestätigung) und ein Sleep/Wake-Zyklus sind
-auf Hardware nachgewiesen; zwei weitere Sleep/Wake-Zyklen und die
-Modell-/Android-Version stehen noch aus.
+auf Hardware nachgewiesen. Das Modell ist erfasst; die Android-Version ist
+über die RNDIS-only-Konfiguration nicht ablesbar. Der Nutzer hat G2 mit
+diesen Daten am 1. November 2026 akzeptiert.
 
 ## Ergebnis in einem Satz
 
@@ -47,7 +48,8 @@ primären Uplink, während die WLAN-Verbindung aktiv bleibt. Der privilegierte
 | Konfiguration | 1, RNDIS Communications Control (Interface 0) + RNDIS Ethernet Data (Interface 1) |
 | Endpunkte | Control-Interrupt `0x82`, Bulk IN `0x81`, Bulk OUT `0x01` |
 | Seriennummer | vorhanden, aus Datenschutzgründen hier nicht dokumentiert |
-| Modell / Android-Version | über die RNDIS-only-Konfiguration nicht ablesbar (kein ADB-Interface aktiv); offener Punkt |
+| Modell | Samsung Galaxy A36 5G (`SM-A366B/DS`) |
+| Android-Version | über die RNDIS-only-Konfiguration nicht ablesbar (kein ADB-Interface aktiv); für G2 akzeptiert |
 
 Das Gerät wird über Deskriptoren als RNDIS erkannt, nicht über eine feste
 VID/PID-Liste. `android-tether list --all --json` meldet:
@@ -272,8 +274,8 @@ Dienstreihenfolge blieb `(4)`, die IPv4-Adresse wurde neu bezogen.
 
 Der eine durchgeführte Sleep/Wake-Zyklus ist im Monitor als
 `last_error=system_sleep` → `system_wake` mit `reconnects=1` sichtbar; die
-Session war danach wieder verbunden. Zwei weitere Sleep/Wake-Zyklen bleiben
-für die vollständige 3×-Zählung offen.
+Session war danach wieder verbunden. Die vollständige 3×-Zählung wurde nicht
+wiederholt; der Nutzer hat G2 mit diesem Nachweis akzeptiert.
 
 ### 3. Betrieb ohne anderen Internet-Uplink (G2-Kriterium 3)
 
@@ -344,7 +346,7 @@ des Mobilfunknetzes, keine garantierte Dauerleistung.
 | erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
 | Replug (3×) | **bestanden**: 20:31:37Z, 20:32:19Z, 20:33:45Z getrennt; jeweils automatisch neu verbunden; DHCP `.52`, `.180`, `.194` |
 | Tethering aus/an (3×) | **bestanden (Nutzerbestätigung)**: ein Zyklus erzwang einen vollständigen Session-Neuaufbau (20:33:59Z → 20:34:08Z), die übrigen blieben ohne Session-Abbruch |
-| Sleep/Wake (3×) | **teilweise**: 1× bestanden (`system_sleep` → `system_wake`, `reconnects=1`, danach verbunden); 2× offen |
+| Sleep/Wake (3×) | **1× bestanden** (`system_sleep` → `system_wake`, `reconnects=1`, danach verbunden); die beiden weiteren Zyklen wurden für G2 nicht wiederholt und vom Nutzer akzeptiert |
 | `connect --prefer` mit aktivem WLAN | **bestanden**: `feth100` primär, HTTP 200 ohne Interface-Bindung, WLAN blieb aktiv |
 | Standard-Priorität 2 (`FALLBACK`) | **bestanden** im `net-smoke`: Dienst hinter dem Default-Uplink einsortiert |
 | Auto-Agent installiert und wartend | **bestanden**: LaunchAgent `running`, `RunAtLoad`/`KeepAlive`, Log zeigt Warten auf RNDIS |
@@ -396,23 +398,21 @@ feth-Paar; alle zehn Checks bestehen.
 | 1. Samsung erkannt, USB-Tethering aktiv, SIP normal | **erfüllt** (SIP enabled, Gerät `04e8:6863`, RNDIS) |
 | 2. nutzbares Interface, DHCP/IP/Gateway/DNS/Route nachvollziehbar | **erfüllt** (`feth100`, `<tether-ip>`, Gateway/DNS `<tether-gateway>`) |
 | 3. ohne anderen Uplink DNS/HTTPS/bidirektional | **erfüllt** (WLAN aus, HTTP 200, Ping 4/4, Upload/Download) |
-| 4. 15 Minuten + Replug/Tethering/Sleep/Wake je 3× | **teilweise**: 15-Minuten-Lauf bestanden; Replug/Tethering/Sleep/Wake offen |
+| 4. 15 Minuten + Replug/Tethering/Sleep/Wake je 3× | **erfüllt mit Nutzerakzeptanz**: 15-Minuten-Lauf, 3× Replug und 3× Tethering aus/an (Nutzerbestätigung) bestanden; Sleep/Wake 1× bestanden, die beiden weiteren Zyklen wurden nicht wiederholt |
 | 5. Cleanup ohne Reste | **erfüllt** für `disconnect` und `net-smoke`; `uninstall` noch nicht separat geprüft |
-| 6. Prüfprotokoll mit Gerät/Version/Commit/IP/Routing/Resultaten | **teilweise**: Modell/Android-Version über RNDIS nicht ablesbar; Commit-ID steht in `target/g1-report.json` |
+| 6. Prüfprotokoll mit Gerät/Version/Commit/IP/Routing/Resultaten | **erfüllt mit Nutzerakzeptanz**: Modell `SM-A366B/DS` erfasst; Android-Version über RNDIS nicht ablesbar; Commit-ID steht in `target/g1-report.json` |
 
 **Korrekte Aussage:** USB-Tethering funktioniert mit diesem konkreten
 Samsung-Gerät über RNDIS auf diesem Mac. Das ist **kein** Nachweis für alle
-Android-Modelle, für NCM/ECM-Hardware oder für Sleep/Wake/Replug.
+Android-Modelle, für NCM/ECM-Hardware oder für wiederholte
+Sleep/Wake-Zyklen.
 
 ## Offene Punkte
 
-1. Samsung-Modell und Android-/One-UI-Version über ADB oder Telefon-UI
-   erfassen und im Protokoll ergänzen.
-2. Replug, Tethering aus/an und Sleep/Wake je dreimal auf Hardware testen.
-3. Durchsatz optimieren (gepipelined USB-Reader/Writer, mehrere Transfers pro
-   Iteration); aktuell ca. 53 KB/s Download.
-4. NCM/ECM-Delegation an echte Hardware prüfen.
-5. Signierung/Notarisierung und `uninstall`-Lauf.
+1. Android-/One-UI-Version erfassen, falls sie später über ADB oder die
+   Telefon-UI verfügbar ist; für G2 wurde der Verzicht akzeptiert.
+2. NCM/ECM-Delegation an echte Hardware prüfen.
+3. Signierung/Notarisierung und `uninstall`-Lauf (Issues #4/#5).
 
 ## Rohdaten
 
