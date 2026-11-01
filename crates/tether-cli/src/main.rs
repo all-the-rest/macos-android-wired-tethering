@@ -28,7 +28,7 @@ use tether_usb::discover::{list_devices, open_rndis, resolve_selector, DeviceInf
 use tether_usb::transport::LibusbTransport;
 
 use crate::helper_client::{CreatedBridge, HelperClient, RemoteFrameIo};
-use crate::state::{clear_state, now_unix, process_alive, read_state, write_state, RuntimeState};
+use crate::state::{clear_state, now_unix, process_matches, read_state, write_state, RuntimeState};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -259,7 +259,7 @@ fn command_status(json_output: bool) -> Result<()> {
         }
         return Ok(());
     };
-    let alive = process_alive(state.pid);
+    let alive = process_matches(&state);
     if json_output {
         let mut value = serde_json::to_value(&state)
             .map_err(|error| TetherError::internal(format!("cannot serialize state: {error}")))?;
@@ -307,13 +307,13 @@ fn command_disconnect(json_output: bool) -> Result<()> {
         }
         return Ok(());
     };
-    if !process_alive(state.pid) {
+    if !process_matches(&state) {
         clear_state();
         if json_output {
             print_json(&json!({"disconnected": true, "reason": "process already gone"}))?;
         } else {
             println!(
-                "Process {} is already gone; stale state removed.",
+                "Process {} is already gone or no longer belongs to android-tether; stale state removed.",
                 state.pid
             );
         }
@@ -332,7 +332,7 @@ fn command_disconnect(json_output: bool) -> Result<()> {
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if !process_alive(state.pid) {
+        if !process_matches(&state) {
             clear_state();
             if json_output {
                 print_json(&json!({"disconnected": true, "pid": state.pid}))?;
@@ -358,7 +358,7 @@ fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
         }
         return Ok(());
     };
-    if process_alive(state.pid) {
+    if process_matches(&state) {
         return Err(TetherError::new(
             ErrorCategory::Configuration,
             format!(
@@ -625,6 +625,9 @@ fn command_connect(
         pid: std::process::id(),
         started_unix: started,
         updated_unix: started,
+        exe: std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
         protocol: engine_info.protocol.as_str().to_string(),
         bus,
         address,

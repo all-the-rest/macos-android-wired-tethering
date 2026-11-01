@@ -31,11 +31,11 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **100 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **102 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
-| `tether-cli` Unit-Tests | 2 |
+| `tether-cli` Unit-Tests | 4 (State, PID-Identität) |
 | `tether-cli` Integrationstests | 4 |
 | `tether-core` Unit-Tests | 28 |
 | `tests/descriptors.rs` | 12 |

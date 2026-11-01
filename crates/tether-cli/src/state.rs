@@ -4,7 +4,8 @@
 //! packet payloads and no credentials.  It is written atomically.
 
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,10 @@ pub struct RuntimeState {
     pub pid: u32,
     pub started_unix: u64,
     pub updated_unix: u64,
+    /// Absolute path of the running CLI binary.  Older state files lack this
+    /// field; `process_matches` then falls back to the command name.
+    #[serde(default)]
+    pub exe: String,
     pub protocol: String,
     pub bus: u8,
     pub address: u8,
@@ -90,6 +95,14 @@ pub fn write_state(state: &RuntimeState) -> Result<()> {
             format!("cannot write state: {error}"),
         )
     })?;
+    // The file contains only operational metadata, but there is no reason to
+    // expose it to other local users.
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)).map_err(|error| {
+        TetherError::new(
+            ErrorCategory::Configuration,
+            format!("cannot protect state file: {error}"),
+        )
+    })?;
     fs::rename(&temporary, &path).map_err(|error| {
         TetherError::new(
             ErrorCategory::Configuration,
@@ -116,16 +129,66 @@ pub fn process_alive(pid: u32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// Return the executable path/command macOS reports for a live PID.
+pub fn process_command(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    let output = std::process::Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Check that a state file still refers to this project's CLI process.
+///
+/// A crashed session can leave a stale state file behind; the PID may then be
+/// recycled by an unrelated process.  `disconnect` and `cleanup` must never
+/// signal such a process.  The executable path written into the state is the
+/// primary check, with a command-name fallback for older state files.
+pub fn process_matches(state: &RuntimeState) -> bool {
+    if !process_alive(state.pid) {
+        return false;
+    }
+    let Some(command) = process_command(state.pid) else {
+        return false;
+    };
+    if !state.exe.is_empty() {
+        if command == state.exe {
+            return true;
+        }
+        let expected = Path::new(&state.exe)
+            .file_name()
+            .and_then(|name| name.to_str());
+        let actual = Path::new(&command)
+            .file_name()
+            .and_then(|name| name.to_str());
+        return expected.is_some() && expected == actual;
+    }
+    command.contains("android-tether")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn roundtrip_state_json() {
-        let state = RuntimeState {
-            pid: 42,
+    fn sample_state(pid: u32) -> RuntimeState {
+        RuntimeState {
+            pid,
             started_unix: 1,
             updated_unix: 2,
+            exe: std::env::current_exe()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
             protocol: "RNDIS".into(),
             bus: 1,
             address: 2,
@@ -143,7 +206,12 @@ mod tests {
             bytes_host_to_phone: 0,
             reconnects: 0,
             last_error: None,
-        };
+        }
+    }
+
+    #[test]
+    fn roundtrip_state_json() {
+        let state = sample_state(42);
         let json = serde_json::to_string(&state).unwrap();
         assert!(!json.contains("serial"));
         let parsed: RuntimeState = serde_json::from_str(&json).unwrap();
@@ -152,7 +220,21 @@ mod tests {
     }
 
     #[test]
+    fn state_without_exe_still_deserializes() {
+        let mut value = serde_json::to_value(sample_state(42)).unwrap();
+        value.as_object_mut().unwrap().remove("exe");
+        let parsed: RuntimeState = serde_json::from_value(value).unwrap();
+        assert!(parsed.exe.is_empty());
+    }
+
+    #[test]
     fn dead_pid_is_not_alive() {
         assert!(!process_alive(0));
+        assert!(!process_matches(&sample_state(0)));
+    }
+
+    #[test]
+    fn current_process_matches_its_own_state() {
+        assert!(process_matches(&sample_state(std::process::id())));
     }
 }
