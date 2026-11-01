@@ -161,7 +161,9 @@
         "crates/tether-cli/src/agent.rs (install/uninstall of the per-user LaunchAgent)",
         "real install-agent/uninstall-agent/reinstall run; net-smoke 11/11",
         "real helper uninstall/reinstall run: daemon, plist, binary and socket removed; cleanup exit 0; net-smoke 11/11 after reinstall",
-        "ad-hoc signing decision and one-time Gatekeeper approval documented in README.md"
+        "ad-hoc signing decision and one-time Gatekeeper approval documented in README.md",
+        ".github/workflows/release.yml (tag-triggered ad-hoc signed arm64 tarball with SHA256SUMS)",
+        "v0.1.0 release downloaded and verified: SHA256SUMS ok, both binaries ad-hoc signed and runnable"
       ],
       "gaps": []
     },

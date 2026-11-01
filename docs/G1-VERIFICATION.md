@@ -210,7 +210,7 @@ wurde neu gebootstrappt und wartet auf ein RNDIS-Gerät. Rohdaten:
 
 | G1-Kriterium | Status |
 |---|---|
-| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Läufe auf GitHub Actions grün: `verify`, `coverage`, `fuzz` und `macos-smoke` (11/11 Checks, nicht übersprungen) |
+| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Läufe auf GitHub Actions grün: `verify`, `coverage`, `fuzz` und `macos-smoke` (11/11 Checks, nicht übersprungen); `release` für `v0.1.0` grün, heruntergeladenes Archiv mit gültiger `SHA256SUMS` und zwei ad-hoc signierten arm64-Binaries |
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
 | 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake; realer 15-Minuten-Lauf, 3× Replug und 1× Sleep/Wake bestanden |
 | 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit elf bestandenen Checks erfüllt |
