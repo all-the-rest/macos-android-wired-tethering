@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: tests
+        run: cargo test --workspace --all-targets
+      - name: arm64 build
+        run: cargo build --release --target aarch64-apple-darwin --workspace
+      - name: ad-hoc sign binaries
+        run: |
+          set -euo pipefail
+          for binary in android-tether android-tether-helper; do
+            codesign --force --sign - --timestamp=none \
+              "target/aarch64-apple-darwin/release/$binary"
+            codesign --verify --strict "target/aarch64-apple-darwin/release/$binary"
+          done
+      - name: package artifact
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          name="android-tether-v${version}-macos-arm64"
+          mkdir -p "dist/$name"
+          cp target/aarch64-apple-darwin/release/android-tether "dist/$name/"
+          cp target/aarch64-apple-darwin/release/android-tether-helper "dist/$name/"
+          cp README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name"
+          cd dist
+          shasum -a 256 ./*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: upload release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*.tar.gz dist/SHA256SUMS

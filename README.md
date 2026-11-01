@@ -233,8 +233,26 @@ unverändert nach `/Library/PrivilegedHelperTools` kopiert.
 Für andere Macs sind damit keine Developer ID und keine Notarisierung nötig.
 macOS verlangt beim ersten Start eine einmalige Freigabe (Rechtsklick →
 Öffnen, Systemeinstellungen → Datenschutz & Sicherheit → „Dennoch öffnen“,
-oder bei CLI-Binaries `xattr -d com.apple.quarantine <pfad>`). Die Verteilung
-bleibt der Quelltext-Build; vorcompilierte Binaries sind nicht Teil des MVP.
+oder bei CLI-Binaries `xattr -d com.apple.quarantine <pfad>`).
+
+Ein Tag `v*` löst `.github/workflows/release.yml` aus: CI prüft Formatierung,
+Clippy und Tests, baut arm64, signiert beide Binaries ad-hoc und hängt
+`android-tether-v<version>-macos-arm64.tar.gz` samt `SHA256SUMS` an ein
+GitHub-Release. Die Verteilung braucht damit keinen lokalen Build mehr:
+
+```bash
+# Archiv und Prüfsumme aus dem Release laden, dann:
+shasum -a 256 -c SHA256SUMS
+tar -xzf android-tether-v<version>-macos-arm64.tar.gz
+cd android-tether-v<version>-macos-arm64
+xattr -d com.apple.quarantine android-tether android-tether-helper 2>/dev/null
+
+sudo ./android-tether-helper install --allow-uid "$(id -u)"
+./android-tether install-agent
+```
+
+Der Quelltext-Build bleibt der Weg für eigene Änderungen und für Intel-Macs
+(der Prototyp ist arm64-only).
 
 ## Tests und CI
 

@@ -66,7 +66,9 @@ maschinengeschrieben und wird nur mit
 ## Git und CI
 
 Ein Commit pro Aufgabe, Conventional Commits. Es gibt ein GitHub-Remote unter
-`all-the-rest`; die Workflow-Definition liegt in `.github/workflows/ci.yml`.
+`all-the-rest`; die CI-Workflow-Definition liegt in `.github/workflows/ci.yml`,
+das Release in `.github/workflows/release.yml`. Ein Tag `v*` baut und signiert
+dort ad-hoc und veröffentlicht das arm64-Archiv mit `SHA256SUMS`.
 Vor dem Push müssen fmt, Clippy, Tests und der arm64-Build grün sein.
 Hardware-Nachweise werden nicht durch CI ersetzt.
 
