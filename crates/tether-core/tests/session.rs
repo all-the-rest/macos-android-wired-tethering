@@ -368,6 +368,7 @@ fn engine_recovers_from_a_transient_transfer_error() {
         bridge,
         EngineConfig {
             notification_timeout: Duration::from_millis(2),
+            notification_interval: Duration::from_millis(1),
             bridge_timeout: Duration::from_millis(1),
             receive_timeout: Duration::from_millis(2),
             max_reconnect_attempts: 2,

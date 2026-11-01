@@ -137,6 +137,7 @@ pub fn run_simulation(scenario: Scenario) -> Result<SimulationReport> {
     let session = RndisSession::new(transport, &function, config)?;
     let engine_config = EngineConfig {
         notification_timeout: Duration::from_millis(5),
+        notification_interval: Duration::from_millis(1),
         bridge_timeout: Duration::from_millis(1),
         receive_timeout: Duration::from_millis(2),
         max_reconnect_attempts: 1,
@@ -199,6 +200,7 @@ fn simulation_session_config(host_mac: MacAddr) -> SessionConfig {
 fn simulation_engine_config() -> EngineConfig {
     EngineConfig {
         notification_timeout: Duration::from_millis(5),
+        notification_interval: Duration::from_millis(1),
         bridge_timeout: Duration::from_millis(1),
         receive_timeout: Duration::from_millis(2),
         max_reconnect_attempts: 1,

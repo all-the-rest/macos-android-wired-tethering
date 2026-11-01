@@ -18,6 +18,9 @@ use crate::transport::UsbTransport;
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     pub notification_timeout: Duration,
+    /// How often the interrupt endpoint is polled for link notifications.
+    /// Polling it on every data iteration adds a timeout to the hot path.
+    pub notification_interval: Duration,
     pub bridge_timeout: Duration,
     pub receive_timeout: Duration,
     pub max_reconnect_attempts: u32,
@@ -29,7 +32,8 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             notification_timeout: Duration::from_millis(2),
-            bridge_timeout: Duration::from_millis(1),
+            notification_interval: Duration::from_millis(100),
+            bridge_timeout: Duration::ZERO,
             receive_timeout: Duration::from_millis(10),
             max_reconnect_attempts: 3,
             reconnect_backoff: Duration::from_millis(500),
@@ -72,6 +76,7 @@ pub struct TetherEngine<T: UsbTransport, B: FrameIo> {
     config: EngineConfig,
     stats: EngineStats,
     info: Option<SessionInfo>,
+    last_notification_poll: Option<Instant>,
 }
 
 impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
@@ -82,6 +87,7 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
             config,
             stats: EngineStats::default(),
             info: None,
+            last_notification_poll: None,
         }
     }
 
@@ -108,9 +114,17 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
             ..StepReport::default()
         };
 
-        let notifications = self
-            .session
-            .poll_notifications(self.config.notification_timeout)?;
+        let should_poll_notifications = self
+            .last_notification_poll
+            .map(|last| last.elapsed() >= self.config.notification_interval)
+            .unwrap_or(true);
+        let notifications = if should_poll_notifications {
+            self.last_notification_poll = Some(Instant::now());
+            self.session
+                .poll_notifications(self.config.notification_timeout)?
+        } else {
+            Vec::new()
+        };
         for notification in notifications {
             report.notifications += 1;
             self.stats.notifications += 1;
@@ -125,20 +139,43 @@ impl<T: UsbTransport, B: FrameIo> TetherEngine<T, B> {
         }
 
         // Frames produced by the macOS network stack (DHCP, ARP, IP).
+        // Drain a bounded batch and send it in one RNDIS transfer.  Sending
+        // one bulk transfer per frame added a full USB round trip to every ACK.
         let mut frame_buffer = [0u8; 2048];
-        while let Some(length) = self
-            .bridge
-            .recv_frame(&mut frame_buffer, self.config.bridge_timeout)?
-        {
-            self.session.send_frame(&frame_buffer[..length])?;
-            report.host_to_phone += 1;
-            self.stats.frames_host_to_phone += 1;
-            self.stats.bytes_host_to_phone += length as u64;
+        let mut host_frames: Vec<Vec<u8>> = Vec::new();
+        while host_frames.len() < 64 {
+            let Some(length) = self
+                .bridge
+                .recv_frame(&mut frame_buffer, self.config.bridge_timeout)?
+            else {
+                break;
+            };
+            host_frames.push(frame_buffer[..length].to_vec());
             report.idle = false;
         }
+        if !host_frames.is_empty() {
+            let refs: Vec<&[u8]> = host_frames.iter().map(Vec::as_slice).collect();
+            let sent = self.session.send_frames(&refs)?;
+            let bytes: u64 = refs.iter().map(|frame| frame.len() as u64).sum();
+            report.host_to_phone += sent;
+            self.stats.frames_host_to_phone += sent as u64;
+            self.stats.bytes_host_to_phone += bytes;
+        }
 
-        // Frames produced by the phone.
-        let frames = self.session.receive_frames(self.config.receive_timeout)?;
+        // Frames produced by the phone.  Drain a few immediately available
+        // transfers before returning to the notification/BPF side.  Keep a
+        // finite timeout: libusb interprets a zero timeout as "wait forever",
+        // and rusb forwards the duration as milliseconds.
+        let mut frames = self.session.receive_frames(self.config.receive_timeout)?;
+        if !frames.is_empty() {
+            for _ in 0..8 {
+                let more = self.session.receive_frames(Duration::from_millis(1))?;
+                if more.is_empty() {
+                    break;
+                }
+                frames.extend(more);
+            }
+        }
         for frame in frames {
             let length = frame.len();
             self.bridge.send_frame(&frame)?;
