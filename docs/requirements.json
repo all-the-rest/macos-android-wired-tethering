@@ -206,7 +206,7 @@
       ],
       "gaps": [
         "CI workflow has not run on a remote runner",
-        "line coverage is about 60.6% overall; privileged macOS/helper paths are not executed",
+        "line coverage is about 61.1% overall; privileged macOS/helper paths are not executed",
         "LLVM does not emit branch coverage for this target"
       ]
     },

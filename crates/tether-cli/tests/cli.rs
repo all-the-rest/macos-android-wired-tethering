@@ -86,3 +86,32 @@ fn net_smoke_without_helper_exits_skipped_not_success() {
     assert_eq!(value["passed"], false);
     assert_eq!(value["checks"][2]["status"], "skip");
 }
+
+#[test]
+fn disconnect_without_state_and_helper_is_idempotent() {
+    let home = std::env::temp_dir().join(format!(
+        "android-tether-cli-home-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&home).expect("create home");
+    let helper = home.join("missing.sock");
+    let output = Command::new(binary())
+        .env("HOME", &home)
+        .args(["disconnect", "--json", "--helper"])
+        .arg(&helper)
+        .output()
+        .expect("run android-tether");
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON output");
+    assert_eq!(value["disconnected"], false);
+    assert_eq!(value["reason"], "no state");
+}

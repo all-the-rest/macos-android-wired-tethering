@@ -123,7 +123,7 @@ fn run(cli: Cli) -> Result<()> {
             mac,
             reconnect_timeout,
         } => command_connect(cli.json, &cli.helper, device, mtu, mac, reconnect_timeout),
-        Commands::Disconnect => command_disconnect(cli.json),
+        Commands::Disconnect => command_disconnect(cli.json, &cli.helper),
         Commands::Cleanup => command_cleanup(cli.json, &cli.helper),
         Commands::Simulate { scenario } => command_simulate(cli.json, &scenario),
         Commands::NetSmoke => command_net_smoke(cli.json, &cli.helper),
@@ -313,24 +313,48 @@ fn command_status(json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn command_disconnect(json_output: bool) -> Result<()> {
+fn command_disconnect(json_output: bool, helper_path: &Path) -> Result<()> {
     let Some(state) = read_state()? else {
+        let (helper_cleaned, helper_note) = destroy_helper_session(helper_path);
         if json_output {
-            print_json(&json!({"disconnected": false, "reason": "not running"}))?;
+            print_json(&json!({
+                "disconnected": helper_cleaned,
+                "reason": "no state",
+                "helper_cleaned": helper_cleaned,
+                "helper": helper_note,
+            }))?;
         } else {
             println!("Not running.");
+            if helper_cleaned {
+                println!("Asked the helper to destroy its session.");
+            }
+            if let Some(note) = helper_note {
+                println!("Helper note: {note}");
+            }
         }
         return Ok(());
     };
     if !process_matches(&state) {
         clear_state();
+        let (helper_cleaned, helper_note) = destroy_helper_session(helper_path);
         if json_output {
-            print_json(&json!({"disconnected": true, "reason": "process already gone"}))?;
+            print_json(&json!({
+                "disconnected": true,
+                "reason": "process already gone",
+                "helper_cleaned": helper_cleaned,
+                "helper": helper_note,
+            }))?;
         } else {
             println!(
                 "Process {} is already gone or no longer belongs to android-tether; stale state removed.",
                 state.pid
             );
+            if helper_cleaned {
+                println!("Asked the helper to destroy its session.");
+            }
+            if let Some(note) = helper_note {
+                println!("Helper note: {note}");
+            }
         }
         return Ok(());
     }
@@ -366,18 +390,7 @@ fn command_disconnect(json_output: bool) -> Result<()> {
 
 fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
     let Some(state) = read_state()? else {
-        let mut helper_note = None;
-        let mut helper_cleaned = false;
-        match HelperClient::connect(helper_path) {
-            Ok(mut helper) => match helper.hello() {
-                Ok(()) => match helper.destroy() {
-                    Ok(()) => helper_cleaned = true,
-                    Err(error) => helper_note = Some(error.message),
-                },
-                Err(error) => helper_note = Some(error.message),
-            },
-            Err(error) => helper_note = Some(error.message),
-        }
+        let (helper_cleaned, helper_note) = destroy_helper_session(helper_path);
         if json_output {
             print_json(&json!({
                 "cleaned": true,
@@ -405,17 +418,7 @@ fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
             ),
         ));
     }
-    let mut helper_note = None;
-    match HelperClient::connect(helper_path) {
-        Ok(mut helper) => {
-            if let Err(error) = helper.hello() {
-                helper_note = Some(error.message);
-            } else {
-                let _ = helper.destroy();
-            }
-        }
-        Err(error) => helper_note = Some(error.message),
-    }
+    let (helper_cleaned, helper_note) = destroy_helper_session(helper_path);
 
     let interfaces = ifconfig_list().unwrap_or_default();
     let mut leftovers = Vec::new();
@@ -432,7 +435,11 @@ fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
     if leftovers.is_empty() {
         clear_state();
         if json_output {
-            print_json(&json!({"cleaned": true, "helper": helper_note}))?;
+            print_json(&json!({
+                "cleaned": true,
+                "helper_cleaned": helper_cleaned,
+                "helper": helper_note,
+            }))?;
         } else {
             println!("Cleanup complete; no leftover interfaces or services.");
             if let Some(note) = helper_note {
@@ -464,6 +471,21 @@ fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
         ErrorCategory::Network,
         "leftovers remain; run the printed manual cleanup after reviewing it",
     ))
+}
+
+/// Ask a running helper to destroy its session without a valid state file.
+/// Returns whether the helper accepted the request and an optional note.
+fn destroy_helper_session(helper_path: &Path) -> (bool, Option<String>) {
+    match HelperClient::connect(helper_path) {
+        Ok(mut helper) => match helper.hello() {
+            Ok(()) => match helper.destroy() {
+                Ok(()) => (true, None),
+                Err(error) => (false, Some(error.message)),
+            },
+            Err(error) => (false, Some(error.message)),
+        },
+        Err(error) => (false, Some(error.message)),
+    }
 }
 
 // ---------------------------------------------------------------------------
