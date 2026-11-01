@@ -58,8 +58,13 @@ NET_SMOKE_JSON="$(cargo run -q -p tether-cli -- net-smoke --json 2>/dev/null)"
 NET_SMOKE_STATUS=$?
 set -e
 printf '%s\n' "$NET_SMOKE_JSON" > target/g1/net-smoke.json
+case "$NET_SMOKE_STATUS" in
+  0) NET_SMOKE_STATE="passed" ;;
+  3) NET_SMOKE_STATE="skipped" ;;
+  *) NET_SMOKE_STATE="failed" ;;
+esac
 if [ "$NET_SMOKE_STATUS" -ne 0 ]; then
-  echo "net-smoke exited with $NET_SMOKE_STATUS (helper not running or smoke failed)"
+  echo "net-smoke exited with $NET_SMOKE_STATUS ($NET_SMOKE_STATE)"
 fi
 
 COMMIT="unversioned"
@@ -67,13 +72,19 @@ if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 fi
 
-python3 - "$TEST_COUNT" "$TEST_PASSED" "$TEST_FAILED" "$FUZZ_STATUS" "$FUZZ_DETAIL" "$COMMIT" <<'PY'
+python3 - "$TEST_COUNT" "$TEST_PASSED" "$TEST_FAILED" "$FUZZ_STATUS" "$FUZZ_DETAIL" "$COMMIT" "$NET_SMOKE_STATE" <<'PY'
 import json, pathlib, sys
-count, passed, failed, fuzz_status, fuzz_detail, commit = sys.argv[1:]
+count, passed, failed, fuzz_status, fuzz_detail, commit, smoke_state = sys.argv[1:]
+req_path = pathlib.Path("docs/requirements.json")
+requirements = json.loads(req_path.read_text())["requirements"]
+req_summary = {"total": len(requirements)}
+for requirement in requirements:
+    status = requirement["status"]
+    req_summary[status] = req_summary.get(status, 0) + 1
 report = {
     "g1": {
         "protocol_core": "verified" if int(failed) == 0 else "failed",
-        "macos_runtime_smoke": "see target/g1/net-smoke.json",
+        "macos_runtime_smoke": smoke_state,
     },
     "commit": commit,
     "tests": {"count": int(count), "passed": int(passed), "failed": int(failed)},
@@ -81,11 +92,12 @@ report = {
              "targets": ["descriptors", "rndis", "ethernet"],
              "max_total_time_seconds": 8},
     "build": {"target": "aarch64-apple-darwin", "status": "passed"},
+    "requirements": req_summary,
     "limitations": [
         "no real Android device",
         "macOS feth/BPF smoke requires the privileged helper",
         "no NCM/ECM data path",
-        "no coverage report",
+        "no line/branch coverage report",
     ],
 }
 pathlib.Path("target/g1-report.json").write_text(json.dumps(report, indent=2) + "\n")

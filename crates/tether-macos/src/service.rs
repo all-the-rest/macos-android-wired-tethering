@@ -232,6 +232,12 @@ fn remove(runner: &dyn PrefsRunner) -> Result<(), String> {
     ))
 }
 
+/// Remove only the service identified by the fixed project UUID.  Used by
+/// uninstall when no CLI state file is available.
+pub fn remove_reserved(runner: &dyn PrefsRunner) -> Result<(), String> {
+    remove(runner)
+}
+
 fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 128 {
         return Err("network service name is empty or too long".to_string());

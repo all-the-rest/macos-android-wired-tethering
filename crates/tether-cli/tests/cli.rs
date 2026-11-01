@@ -59,3 +59,30 @@ fn help_lists_the_supported_commands() {
         assert!(text.contains(command), "missing command {command}");
     }
 }
+
+#[test]
+fn net_smoke_without_helper_exits_skipped_not_success() {
+    let helper = std::env::temp_dir().join(format!(
+        "android-tether-no-helper-{}-{}.sock",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let output = Command::new(binary())
+        .args(["net-smoke", "--json", "--helper"])
+        .arg(&helper)
+        .output()
+        .expect("run android-tether");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a skipped privileged smoke must not look like success; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON output");
+    assert_eq!(value["skipped"], true);
+    assert_eq!(value["passed"], false);
+    assert_eq!(value["checks"][2]["status"], "skip");
+}

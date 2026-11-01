@@ -23,6 +23,8 @@ use tether_macos::feth::FethPair;
 use tether_macos::ipc::{peer_credentials, FdChannel, PROTOCOL_VERSION};
 use tether_macos::service::{NetworkService, PrefsRunner, ScutilRunner, DEFAULT_SERVICE_NAME};
 
+mod install;
+
 static STOP: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn stop_handler(_signal: libc::c_int) {
@@ -44,15 +46,42 @@ enum Commands {
     /// Run the helper server (requires root).
     Serve {
         /// Unix socket used by the unprivileged CLI.
-        #[arg(long, default_value = "/var/run/android-tether-helper.sock")]
+        #[arg(long, default_value = install::DEFAULT_SOCKET)]
         socket: PathBuf,
         /// UID allowed to connect.  Defaults to SUDO_UID.
         #[arg(long)]
         allow_uid: Option<u32>,
     },
+    /// Install the helper as a LaunchDaemon (requires root).
+    Install {
+        /// UID allowed to connect.  Defaults to SUDO_UID.
+        #[arg(long)]
+        allow_uid: Option<u32>,
+        /// Installed helper binary.
+        #[arg(long, default_value = install::DEFAULT_BINARY)]
+        binary: PathBuf,
+        /// LaunchDaemon property list.
+        #[arg(long, default_value = install::DEFAULT_PLIST)]
+        plist: PathBuf,
+        /// Unix socket used by the unprivileged CLI.
+        #[arg(long, default_value = install::DEFAULT_SOCKET)]
+        socket: PathBuf,
+    },
+    /// Remove the LaunchDaemon and installed helper (requires root).
+    Uninstall {
+        /// Installed helper binary.
+        #[arg(long, default_value = install::DEFAULT_BINARY)]
+        binary: PathBuf,
+        /// LaunchDaemon property list.
+        #[arg(long, default_value = install::DEFAULT_PLIST)]
+        plist: PathBuf,
+        /// Unix socket used by the unprivileged CLI.
+        #[arg(long, default_value = install::DEFAULT_SOCKET)]
+        socket: PathBuf,
+    },
     /// Print environment checks without changing anything.
     Check {
-        #[arg(long, default_value = "/var/run/android-tether-helper.sock")]
+        #[arg(long, default_value = install::DEFAULT_SOCKET)]
         socket: PathBuf,
     },
 }
@@ -61,6 +90,36 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Commands::Serve { socket, allow_uid } => serve(&socket, allow_uid),
+        Commands::Install {
+            allow_uid,
+            binary,
+            plist,
+            socket,
+        } => {
+            let allow_uid =
+                allow_uid.or_else(|| std::env::var("SUDO_UID").ok().and_then(|v| v.parse().ok()));
+            match allow_uid {
+                Some(allow_uid) => {
+                    let mut options = install::InstallOptions::new(allow_uid);
+                    options.binary = binary;
+                    options.plist = plist;
+                    options.socket = socket;
+                    install::install(&options)
+                }
+                None => {
+                    Err("install needs --allow-uid <uid> or SUDO_UID (start with sudo)".to_string())
+                }
+            }
+        }
+        Commands::Uninstall {
+            binary,
+            plist,
+            socket,
+        } => install::uninstall(&install::UninstallOptions {
+            binary,
+            plist,
+            socket,
+        }),
         Commands::Check { socket } => check(&socket),
     };
     if let Err(error) = result {

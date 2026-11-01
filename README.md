@@ -64,7 +64,7 @@ file target/aarch64-apple-darwin/release/android-tether-helper
 ## Helper starten
 
 Der Helper muss als Root laufen und darf nur den aufrufenden Benutzer über den
-Unix-Socket zulassen:
+Unix-Socket zulassen. Für einen kurzen Test im Vordergrund:
 
 ```bash
 sudo ./target/aarch64-apple-darwin/release/android-tether-helper serve \
@@ -74,8 +74,26 @@ sudo ./target/aarch64-apple-darwin/release/android-tether-helper serve \
 Der Socket liegt standardmäßig unter
 `/var/run/android-tether-helper.sock`, gehört dem angegebenen Benutzer und hat
 Modus `0600`. Ein anderer Socket kann mit `--socket` (Helper) und
-`--helper` (CLI, global) gewählt werden. Der Helper bleibt im Vordergrund; eine
-launchd-Installation ist bewusst nicht Teil des Prototyps.
+`--helper` (CLI, global) gewählt werden.
+
+Für einen dauerhaften Start kann der Helper als LaunchDaemon installiert
+werden. Der Befehl kopiert das Binary nach
+`/Library/PrivilegedHelperTools/android-tether-helper`, schreibt die plist
+`/Library/LaunchDaemons/io.github.android-tether.helper.plist` und lädt sie mit
+`launchctl`:
+
+```bash
+sudo ./target/aarch64-apple-darwin/release/android-tether-helper install
+# optional: --allow-uid 501 --binary ... --plist ... --socket ...
+
+# Deinstallation (vorher 'android-tether cleanup' ausführen):
+sudo ./target/aarch64-apple-darwin/release/android-tether-helper uninstall
+```
+
+Die Deinstallation entfernt plist, installiertes Binary, Socket und den
+reservierten Netzwerkdienst. Ein noch vorhandenes feth-Paar wird nicht
+blindlings gelöscht, weil feth-Namen nicht exklusiv diesem Projekt gehören;
+`android-tether cleanup` entfernt es anhand des gespeicherten Zustands.
 
 ## Benutzung
 
@@ -111,6 +129,7 @@ android-tether simulate --scenario dhcp --json
 android-tether simulate --scenario faults
 
 # macOS feth/BPF/Netzwerkdienst-Smoke-Test (benötigt laufenden Root-Helper)
+# Exit-Code 3 bedeutet "übersprungen", nicht "bestanden".
 android-tether net-smoke --json
 ```
 

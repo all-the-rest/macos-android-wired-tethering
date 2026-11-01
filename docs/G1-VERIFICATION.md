@@ -31,19 +31,20 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **95 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **100 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
 | `tether-cli` Unit-Tests | 2 |
-| `tether-cli` Integrationstests | 3 |
+| `tether-cli` Integrationstests | 4 |
 | `tether-core` Unit-Tests | 28 |
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
 | `tests/session.rs` | 18 |
+| `tether-helper` Unit-Tests | 3 (LaunchDaemon-plist) |
 | `tether-macos` Unit-Tests | 18 |
-| `tether-usb` Unit-Tests | 0 (nur Adapter) |
+| `tether-usb` Unit-Tests | 1 (Claim-Plan) |
 
 Testanzahl und Fehlversuche werden von `scripts/verify-g1.sh` zusätzlich in
 `target/g1-report.json` maschinenlesbar gespeichert. Die Testgruppen sind in
@@ -113,6 +114,7 @@ passwortloses sudo). Daher:
 
 ```text
 android-tether net-smoke --json
+# Exit-Code 3 = übersprungen (Helper nicht als Root gestartet), nicht Erfolg:
 {
   "passed": false,
   "skipped": true,
@@ -149,7 +151,7 @@ android-tether list --all
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
 | 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 nur teilweise (kein Langzeit-/Sleep-Wake) |
 | 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; macOS-Smoke **skipped** (Root-Helper nicht gestartet) |
-| 5. Testmatrix, Quellen, Commit-ID, Logs, Lücken | Matrix/Quellen/Logs vorhanden; Commit-ID siehe `target/g1-report.json` (Repo ggf. `unversioned`) |
+| 5. Testmatrix, Quellen, Commit-ID, Logs, Lücken | Matrix/Quellen/Logs vorhanden; Commit-ID und Requirement-Abdeckung maschinenlesbar in `target/g1-report.json`; `docs/requirements.json` enthält den geprüften Status je F-/N-Anforderung |
 
 **Ergebnis:** Kein vollständiges G1 nach der strengen Definition, weil
 Kriterium 4 nur teilweise ausgeführt wurde. Der korrekte Status lautet:

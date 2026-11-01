@@ -278,9 +278,10 @@ pub fn open_rndis(bus: u8, address: u8) -> Result<OpenedDevice> {
         )));
     }
 
+    let plan = claim_plan(&function);
     let mut claimed = Vec::new();
-    for interface in [function.control.number, function.data.number] {
-        if interface_in_use(&handle, interface)? {
+    for interface in &plan {
+        if interface_in_use(&handle, *interface)? {
             for claimed_interface in &claimed {
                 let _ = handle.release_interface(*claimed_interface);
             }
@@ -292,14 +293,14 @@ pub fn open_rndis(bus: u8, address: u8) -> Result<OpenedDevice> {
             ));
         }
     }
-    for interface in [function.control.number, function.data.number] {
-        handle.claim_interface(interface).map_err(|error| {
+    for interface in &plan {
+        handle.claim_interface(*interface).map_err(|error| {
             for claimed_interface in &claimed {
                 let _ = handle.release_interface(*claimed_interface);
             }
             map_rusb(error)
         })?;
-        claimed.push(interface);
+        claimed.push(*interface);
     }
     if function.data.alt != 0 {
         if let Err(error) = handle.set_alternate_setting(function.data.number, function.data.alt) {
@@ -325,6 +326,21 @@ pub fn open_rndis(bus: u8, address: u8) -> Result<OpenedDevice> {
         product_id: descriptor.product_id(),
         claimed_interfaces: claimed,
     })
+}
+
+/// Interfaces that an RNDIS session needs to claim.
+///
+/// Only the control interface and the data interface selected by the protocol
+/// classification are touched.  ADB, MTP, charging and any other interface of
+/// a composite device remain available to macOS and to other processes.
+pub fn claim_plan(function: &tether_core::descriptor::TetherFunction) -> Vec<u8> {
+    let mut interfaces = Vec::with_capacity(2);
+    for interface in [function.control.number, function.data.number] {
+        if !interfaces.contains(&interface) {
+            interfaces.push(interface);
+        }
+    }
+    interfaces
 }
 
 fn interface_in_use(handle: &DeviceHandle<Context>, interface: u8) -> Result<bool> {
@@ -403,5 +419,58 @@ pub fn map_rusb_result(error: rusb::Error) -> tether_core::transport::UsbError {
         rusb::Error::Access => UsbError::Permission,
         rusb::Error::Busy => UsbError::Busy,
         other => UsbError::Other(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tether_core::descriptor::{
+        ControlInterface, DataInterface, Endpoint, Protocol, TetherFunction, TransferType,
+    };
+
+    fn bulk(address: u8) -> Endpoint {
+        Endpoint {
+            address,
+            transfer_type: TransferType::Bulk,
+            max_packet_size: 512,
+            interval: 0,
+            extra: Vec::new(),
+        }
+    }
+
+    fn function(control: u8, data: u8) -> TetherFunction {
+        TetherFunction {
+            protocol: Protocol::Rndis,
+            configuration_value: 1,
+            control: ControlInterface {
+                number: control,
+                alt: 0,
+                class: 0xe0,
+                subclass: 0x01,
+                protocol: 0x03,
+                interrupt_in: None,
+            },
+            data: DataInterface {
+                number: data,
+                alt: 0,
+                bulk_in: bulk(0x81),
+                bulk_out: bulk(0x01),
+            },
+            union: None,
+            iad: None,
+            ethernet: None,
+            ncm: None,
+            functionals: Vec::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn claims_only_control_and_data_interfaces() {
+        // A composite device may also expose ADB (interface 0) and MTP
+        // (interface 3).  Those interfaces must never appear in the claim plan.
+        assert_eq!(claim_plan(&function(1, 2)), vec![1, 2]);
+        assert_eq!(claim_plan(&function(1, 1)), vec![1]);
     }
 }

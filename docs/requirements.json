@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "source": "PLAN.md (Version 1.0, 1 November 2026)",
+  "scope": "synthetic prototype; no real Android device and no completed privileged macOS run",
+  "requirements": [
+    {
+      "id": "F-01",
+      "kind": "functional",
+      "title": "USB and CDC descriptor detection",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-core/src/descriptor.rs",
+        "crates/tether-core/src/cdc.rs",
+        "crates/tether-core/tests/descriptors.rs",
+        "crates/tether-core/tests/properties.rs"
+      ],
+      "gaps": [
+        "no real vendor descriptors beyond constructed fixtures"
+      ]
+    },
+    {
+      "id": "F-02",
+      "kind": "functional",
+      "title": "Coexistence with ADB, MTP, charging and native drivers",
+      "status": "partial",
+      "evidence": [
+        "crates/tether-usb/src/discover.rs (claim_plan + claims_only_control_and_data_interfaces)",
+        "crates/tether-cli/src/main.rs"
+      ],
+      "gaps": [
+        "no automated libusb claim test against a real composite device",
+        "kernel_driver_active path is implemented but not exercised on hardware"
+      ]
+    },
+    {
+      "id": "F-03",
+      "kind": "functional",
+      "title": "RNDIS control and data protocol",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-core/src/rndis/message.rs",
+        "crates/tether-core/src/rndis/oids.rs",
+        "crates/tether-core/src/rndis/packet.rs",
+        "crates/tether-core/src/rndis/session.rs",
+        "crates/tether-core/src/rndis/mock.rs",
+        "crates/tether-core/tests/session.rs",
+        "crates/tether-core/tests/negative.rs",
+        "fuzz/fuzz_targets/rndis.rs"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "F-04",
+      "kind": "functional",
+      "title": "CDC-NCM detection and native delegation",
+      "status": "partial",
+      "evidence": [
+        "crates/tether-core/src/descriptor.rs",
+        "crates/tether-core/tests/descriptors.rs"
+      ],
+      "gaps": [
+        "classification only; delegation not exercised against a native macOS driver"
+      ]
+    },
+    {
+      "id": "F-05",
+      "kind": "functional",
+      "title": "CDC-ECM detection and native delegation",
+      "status": "partial",
+      "evidence": [
+        "crates/tether-core/src/descriptor.rs",
+        "crates/tether-core/tests/descriptors.rs"
+      ],
+      "gaps": [
+        "classification only; delegation not exercised against a native macOS driver"
+      ]
+    },
+    {
+      "id": "F-06",
+      "kind": "functional",
+      "title": "macOS network integration (feth/BPF/DHCP/DNS/MTU)",
+      "status": "partial",
+      "evidence": [
+        "crates/tether-macos/src/feth.rs",
+        "crates/tether-macos/src/bpf.rs",
+        "crates/tether-macos/src/service.rs",
+        "crates/tether-core/src/testkit.rs",
+        "crates/tether-core/tests/session.rs",
+        "scripts/macos-smoke.sh"
+      ],
+      "gaps": [
+        "privileged feth/BPF/scutil runtime smoke skipped: helper not started as root",
+        "DHCP/DNS/default-route behaviour inside macOS not observed end to end"
+      ]
+    },
+    {
+      "id": "F-07",
+      "kind": "functional",
+      "title": "Lifecycle, errors, reset and cleanup",
+      "status": "partial",
+      "evidence": [
+        "crates/tether-core/src/engine.rs",
+        "crates/tether-core/tests/session.rs",
+        "crates/tether-helper/src/main.rs",
+        "crates/tether-cli/src/main.rs"
+      ],
+      "gaps": [
+        "no hotplug, sleep/wake or long-running test",
+        "no real USB reset or device swap"
+      ]
+    },
+    {
+      "id": "F-08",
+      "kind": "functional",
+      "title": "list, status, diagnose, connect and disconnect",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-cli/src/main.rs",
+        "crates/tether-cli/src/state.rs",
+        "crates/tether-cli/tests/cli.rs",
+        "docs/G1-VERIFICATION.md"
+      ],
+      "gaps": [
+        "connect was not run against a real device"
+      ]
+    },
+    {
+      "id": "F-09",
+      "kind": "functional",
+      "title": "Reproducible build and complete cleanup",
+      "status": "partial",
+      "evidence": [
+        "scripts/verify-g1.sh",
+        ".github/workflows/ci.yml",
+        "crates/tether-macos/src/feth.rs",
+        "crates/tether-macos/src/service.rs",
+        "crates/tether-helper/src/install.rs",
+        "crates/tether-cli/src/main.rs"
+      ],
+      "gaps": [
+        "no signing or notarisation",
+        "install/uninstall path has not been executed with root",
+        "cleanup of a live privileged session not executed"
+      ]
+    },
+    {
+      "id": "N-01",
+      "kind": "nonfunctional",
+      "title": "Untrusted input validation and controlled unsafe",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-core/src/descriptor.rs",
+        "crates/tether-core/src/rndis/message.rs",
+        "crates/tether-core/src/rndis/packet.rs",
+        "crates/tether-core/tests/negative.rs",
+        "crates/tether-core/tests/properties.rs",
+        "fuzz/fuzz_targets/descriptors.rs",
+        "fuzz/fuzz_targets/rndis.rs",
+        "fuzz/fuzz_targets/ethernet.rs"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "N-02",
+      "kind": "nonfunctional",
+      "title": "Robustness, bounded retries and recovery",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-core/src/engine.rs",
+        "crates/tether-core/src/rndis/session.rs",
+        "crates/tether-core/tests/session.rs",
+        "crates/tether-core/tests/negative.rs"
+      ],
+      "gaps": [
+        "long-running behaviour not measured"
+      ]
+    },
+    {
+      "id": "N-03",
+      "kind": "nonfunctional",
+      "title": "Hardware-free, deterministic testability",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-core/src/transport.rs",
+        "crates/tether-core/src/rndis/mock.rs",
+        "crates/tether-core/src/net.rs",
+        "crates/tether-core/src/testkit.rs",
+        "crates/tether-cli/src/main.rs"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "N-04",
+      "kind": "nonfunctional",
+      "title": "Maintainability and CI",
+      "status": "partial",
+      "evidence": [
+        "Cargo.toml",
+        "scripts/verify-g1.sh",
+        ".github/workflows/ci.yml",
+        "docs/TRACEABILITY.md",
+        "docs/G1-VERIFICATION.md",
+        "docs/requirements.json"
+      ],
+      "gaps": [
+        "CI workflow has not run on a remote runner",
+        "line/branch coverage is not measured"
+      ]
+    },
+    {
+      "id": "N-05",
+      "kind": "nonfunctional",
+      "title": "Privacy and data minimisation",
+      "status": "covered",
+      "evidence": [
+        "crates/tether-cli/src/state.rs",
+        "crates/tether-cli/src/main.rs",
+        "docs/G1-VERIFICATION.md"
+      ],
+      "gaps": []
+    },
+    {
+      "id": "N-06",
+      "kind": "nonfunctional",
+      "title": "Signing, notarisation and distribution",
+      "status": "not_implemented",
+      "evidence": [],
+      "gaps": [
+        "explicitly outside the synthetic prototype"
+      ]
+    }
+  ]
+}

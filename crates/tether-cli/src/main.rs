@@ -842,23 +842,34 @@ fn command_net_smoke(json_output: bool, helper_path: &Path) -> Result<()> {
             )
             .collect();
         print_json(&json!({"passed": passed, "skipped": skipped, "checks": values}))?;
-        return Ok(());
-    }
-    println!("macOS network integration smoke test:");
-    for check in &checks {
-        println!(
-            "  [{}] {}: {}",
-            check.status.to_uppercase(),
-            check.name,
-            check.detail
-        );
-    }
-    if skipped {
-        println!("Result: SKIPPED (privileged helper not running).");
-    } else if passed {
-        println!("Result: PASS (no phone attached).");
     } else {
-        println!("Result: FAIL.");
+        println!("macOS network integration smoke test:");
+        for check in &checks {
+            println!(
+                "  [{}] {}: {}",
+                check.status.to_uppercase(),
+                check.name,
+                check.detail
+            );
+        }
+        if skipped {
+            println!("Result: SKIPPED (privileged helper not running).");
+        } else if passed {
+            println!("Result: PASS (no phone attached).");
+        } else {
+            println!("Result: FAIL.");
+        }
+    }
+    // Exit 3 is distinct from a normal error (1) so that automation cannot
+    // mistake a skipped privileged smoke test for a pass.
+    if skipped {
+        std::process::exit(3);
+    }
+    if !passed {
+        return Err(TetherError::new(
+            ErrorCategory::Network,
+            "macOS network integration smoke test failed",
+        ));
     }
     Ok(())
 }
