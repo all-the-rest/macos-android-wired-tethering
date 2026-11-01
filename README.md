@@ -202,28 +202,39 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 
 - **Nur RNDIS** wird aktiv implementiert. CDC-NCM und CDC-ECM werden erkannt und
   als native Delegation gemeldet; sie werden nicht vom eigenen Stack gefahren.
-- Der USB-Datenpfad ist synchron und single-threaded. Die letzte reale
-  Messung lag bei rund 44 KB/s Download und 57 KB/s Upload sowie 0,5–1,5 s
-  Ping; damit ist Twitch nicht flüssig. Der Hot Path pollt Benachrichtigungen
-  jetzt nur noch alle 100 ms, wartet nicht mehr auf leere BPF-Frames und
-  bündelt Frames pro RNDIS-Transfer. Eine neue Hardware-Messung nach dieser
-  Optimierung steht noch aus; ein gepipeliner Datenpfad bleibt die nächste
-  Ausbaustufe.
+- Der USB-Datenpfad ist weiterhin synchron und single-threaded, aber der Hot
+  Path pollt Benachrichtigungen nur noch alle 100 ms, wartet nicht mehr auf
+  leere BPF-Frames und bündelt Frames pro RNDIS-Transfer. Die Messung nach
+  dieser Optimierung ergab 1,82 MB/s (1 MB), 7,35 MB/s (5 MB) Download und
+  1,18 MB/s Upload bei ca. 45 ms Ping; Twitch lief flüssig. Ein gepipeliner
+  Datenpfad bleibt die nächste Ausbaustufe.
 - Hotplug/Replug wird durch den Reconnect-Supervisor (`--reconnect-timeout`,
   Standard 60 s) behandelt: feth/BPF/Dienst bleiben bestehen, die Host-MAC
   wird gepinnt. Sleep/Wake ist über IOKit-Power-Benachrichtigungen angebunden
   (Link down bei `WillSleep`, RESET/Reinitialisierung bei `HasPoweredOn`);
-  beides ist synthetisch getestet, aber noch nicht auf Hardware verifiziert.
+  beides ist synthetisch und auf Hardware getestet (3× Replug, 1× Sleep/Wake).
 - IPv6 wird als Ethernet weitergeleitet, aber nicht separat verifiziert.
 - Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) wurde auf diesem Mac als
   Root ausgeführt. `android-tether net-smoke --json` besteht alle elf Checks
   (feth-Paar, SCM_RIGHTS-BPF, Link up/down, Dienst, Priorität 2, Cleanup).
-- `android-tether-helper install` wurde als Root ausgeführt und der Helper
-  läuft als LaunchDaemon. Der automatische LaunchAgent ist installiert und
-  wartet auf ein RNDIS-Gerät; der tatsächliche Ansteck-/Replug-Lauf mit
-  Hardware ist noch zu wiederholen. `uninstall` ist implementiert, aber noch
-  nicht in einem eigenen Lauf geprüft. Signierung, Notarisierung und eine
-  öffentliche Verteilung sind nicht Teil dieses Prototyps.
+- `android-tether-helper install/uninstall` wurde als Root ausgeführt: Der
+  Helper läuft als LaunchDaemon; `uninstall` entfernt Daemon, plist, Binary,
+  Socket und den reservierten Dienst, und `net-smoke` besteht nach der
+  Neuinstallation 11/11. Der automatische LaunchAgent ist installiert und
+  verbindet das Gerät beim Anstecken.
+
+## Signierung und Verteilung
+
+CLI und Helper werden **ad-hoc** signiert (`codesign --force --sign -`).
+`install-agent` signiert die kopierte CLI vor dem atomaren Austausch; der
+Helper wird beim Bauen linker-/ad-hoc-signiert und beim Installieren
+unverändert nach `/Library/PrivilegedHelperTools` kopiert.
+
+Für andere Macs sind damit keine Developer ID und keine Notarisierung nötig.
+macOS verlangt beim ersten Start eine einmalige Freigabe (Rechtsklick →
+Öffnen, Systemeinstellungen → Datenschutz & Sicherheit → „Dennoch öffnen“,
+oder bei CLI-Binaries `xattr -d com.apple.quarantine <pfad>`). Die Verteilung
+bleibt der Quelltext-Build; vorcompilierte Binaries sind nicht Teil des MVP.
 
 ## Tests und CI
 

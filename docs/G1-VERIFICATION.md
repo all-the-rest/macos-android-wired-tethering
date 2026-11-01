@@ -189,13 +189,30 @@ android-tether list --all
 # Netzwerkfunktion bleiben unangetastet
 ```
 
+### Helper-Deinstallation und Neuinstallation
+
+`android-tether-helper uninstall` wurde separat als Root ausgeführt:
+
+| Prüfung | Ergebnis |
+|---|---|
+| LaunchDaemon | `launchctl print system/...` meldet „Could not find service“ |
+| plist / Binary / Socket | alle entfernt |
+| reservierter Netzwerkdienst | entfernt |
+| feth-Paar | keines übrig |
+| `android-tether cleanup --json` danach | Exit 0, `cleaned: true`, `reason: no state`; Helper erwartungsgemäß nicht erreichbar |
+
+Die anschließende Neuinstallation startete den Daemon wieder; `net-smoke`
+bestand erneut 11/11 (`passed: true`, `skipped: false`). Der Benutzer-Agent
+wurde neu gebootstrappt und wartet auf ein RNDIS-Gerät. Rohdaten:
+`target/g1/evidence/helper-uninstall/`.
+
 ## Bewertung gegen PLAN.md §7 (G1)
 
 | G1-Kriterium | Status |
 |---|---|
-| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; erster CI-Lauf auf GitHub Actions grün: `verify`, `coverage`, `fuzz` und `macos-smoke` (11/11 Checks, nicht übersprungen), Lauf `41339266007` |
+| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Läufe auf GitHub Actions grün: `verify`, `coverage`, `fuzz` und `macos-smoke` (11/11 Checks, nicht übersprungen) |
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
-| 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake, aber ohne Langzeit-/Hardware-Lauf |
+| 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake; realer 15-Minuten-Lauf, 3× Replug und 1× Sleep/Wake bestanden |
 | 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit elf bestandenen Checks erfüllt |
 | 5. Testmatrix, Quellen, Commit-ID, Logs, Lücken | Matrix/Quellen/Logs vorhanden; Commit-ID und Requirement-Abdeckung maschinenlesbar in `target/g1-report.json`; `docs/requirements.json` enthält den geprüften Status je F-/N-Anforderung |
 
@@ -212,19 +229,18 @@ android-tether list --all
 
 ## Offene Lücken
 
-1. Realer Replug, Sleep/Wake und Gerätewechsel; die IOKit-Power-Hooks und der
-   Reconnect-Supervisor sind implementiert und synthetisch getestet, aber
-   noch nicht in Hardware-Wiederholungen ausgeführt.
+1. Gerätewechsel auf Hardware; Replug (3×) und ein Sleep/Wake-Zyklus sind
+   bestanden, die beiden weiteren Sleep/Wake-Zyklen wurden für G2 akzeptiert.
 2. NCM/ECM-Delegation auf realer Hardware.
 3. Line-Coverage liegt bei rund 61 %; Root-/Hardware-Pfade sind nur teilweise
    ausgeführt, Branch-Coverage wird von LLVM auf diesem Target nicht geliefert.
-4. Signierung und Notarisierung; `uninstall` wurde noch nicht separat geprüft.
-5. G2-Vollständigkeit: Modell-/Android-Version, Replug/Sleep/Wake je 3×,
-   Durchsatzoptimierung.
+4. G2-Vollständigkeit: Android-Version nicht ablesbar; Modell und Durchsatz
+   sind erfasst, zwei weitere Sleep/Wake-Zyklen für G2 akzeptiert.
 
 ## G2
 
-G2 ist für die Kriterien 1–3 und den Cleanup-Teil von Kriterium 5 mit einem
-realen Samsung-Gerät belegt. Kriterium 4 (Replug/Sleep/Wake-Wiederholungen)
-und die Modell-/Android-Version sind noch offen. Protokoll:
+G2 ist mit den vorliegenden Daten vom Nutzer akzeptiert: Kriterien 1–3,
+3× Replug, 3× Tethering aus/an (Nutzerbestätigung), 1× Sleep/Wake und Modell
+`SM-A366B/DS`; die Android-Version ist über RNDIS nicht ablesbar, zwei weitere
+Sleep/Wake-Zyklen wurden nicht wiederholt. Protokoll:
 [G2-VERIFICATION.md](G2-VERIFICATION.md).

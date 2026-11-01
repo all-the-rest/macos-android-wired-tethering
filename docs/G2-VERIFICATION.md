@@ -370,7 +370,10 @@ networksetup -listallnetworkservices | grep -i tether
 ```
 
 `net-smoke` prüft denselben Cleanup-Pfad zusätzlich mit einem eigenen
-feth-Paar; alle zehn Checks bestehen.
+feth-Paar; alle elf Checks bestehen. Der separate
+Helper-Uninstall-/Neuinstallationslauf ist in
+[G1-VERIFICATION.md](G1-VERIFICATION.md) dokumentiert; `net-smoke` bestand
+danach erneut 11/11.
 
 ## Gefundene und behobene Fehler aus dem realen Lauf
 
@@ -399,7 +402,7 @@ feth-Paar; alle zehn Checks bestehen.
 | 2. nutzbares Interface, DHCP/IP/Gateway/DNS/Route nachvollziehbar | **erfüllt** (`feth100`, `<tether-ip>`, Gateway/DNS `<tether-gateway>`) |
 | 3. ohne anderen Uplink DNS/HTTPS/bidirektional | **erfüllt** (WLAN aus, HTTP 200, Ping 4/4, Upload/Download) |
 | 4. 15 Minuten + Replug/Tethering/Sleep/Wake je 3× | **erfüllt mit Nutzerakzeptanz**: 15-Minuten-Lauf, 3× Replug und 3× Tethering aus/an (Nutzerbestätigung) bestanden; Sleep/Wake 1× bestanden, die beiden weiteren Zyklen wurden nicht wiederholt |
-| 5. Cleanup ohne Reste | **erfüllt** für `disconnect` und `net-smoke`; `uninstall` noch nicht separat geprüft |
+| 5. Cleanup ohne Reste | **erfüllt** für `disconnect`, `net-smoke`, den Helper-`uninstall`/Neuinstallation und den Agent-Neustart |
 | 6. Prüfprotokoll mit Gerät/Version/Commit/IP/Routing/Resultaten | **erfüllt mit Nutzerakzeptanz**: Modell `SM-A366B/DS` erfasst; Android-Version über RNDIS nicht ablesbar; Commit-ID steht in `target/g1-report.json` |
 
 **Korrekte Aussage:** USB-Tethering funktioniert mit diesem konkreten
@@ -412,7 +415,6 @@ Sleep/Wake-Zyklen.
 1. Android-/One-UI-Version erfassen, falls sie später über ADB oder die
    Telefon-UI verfügbar ist; für G2 wurde der Verzicht akzeptiert.
 2. NCM/ECM-Delegation an echte Hardware prüfen.
-3. Signierung/Notarisierung und `uninstall`-Lauf (Issues #4/#5).
 
 ## Rohdaten
 

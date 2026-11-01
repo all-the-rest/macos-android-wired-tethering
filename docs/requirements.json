@@ -148,7 +148,7 @@
       "id": "F-09",
       "kind": "functional",
       "title": "Reproducible build and complete cleanup",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "scripts/verify-g1.sh",
         ".github/workflows/ci.yml",
@@ -159,12 +159,11 @@
         "real launchd install as root and net-smoke cleanup pass",
         "docs/G2-VERIFICATION.md",
         "crates/tether-cli/src/agent.rs (install/uninstall of the per-user LaunchAgent)",
-        "real install-agent/uninstall-agent/reinstall run; net-smoke 11/11"
+        "real install-agent/uninstall-agent/reinstall run; net-smoke 11/11",
+        "real helper uninstall/reinstall run: daemon, plist, binary and socket removed; cleanup exit 0; net-smoke 11/11 after reinstall",
+        "ad-hoc signing decision and one-time Gatekeeper approval documented in README.md"
       ],
-      "gaps": [
-        "no signing or notarisation",
-        "helper uninstall has not been run separately"
-      ]
+      "gaps": []
     },
     {
       "id": "N-01",
