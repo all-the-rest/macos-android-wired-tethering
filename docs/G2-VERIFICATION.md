@@ -12,8 +12,10 @@ Modell-/Android-Version stehen noch aus.
 Auf einem MacBook Pro (Apple <soc>, macOS 27.2, SIP aktiv) funktioniert
 USB-Tethering mit einem Samsung-Android-Gerät über **RNDIS**: DHCP, DNS,
 Default Route, ICMP und HTTPS laufen ohne WLAN-Uplink am Mac über das Telefon;
-1 MB Upload und 1 MB Download waren erfolgreich. Der privilegierte
-`feth`/BPF/`scutil`-Smoke-Test besteht.
+1 MB Upload und 1 MB Download waren erfolgreich. Mit `connect --prefer` wird
+das Telefon auch bei eingeschaltetem WLAN zum primären Uplink, während die
+WLAN-Verbindung aktiv bleibt. Der privilegierte `feth`/BPF/`scutil`-Smoke-Test
+besteht.
 
 ## Umgebung
 
@@ -130,10 +132,53 @@ Der macOS-Netzwerkdienst bezieht per DHCP:
 | Lease | 3599 s, T1 1799 s, T2 3149 s |
 | Vendor | `ANDROID_METERED` |
 
-Der Dienst wird bewusst **ans Ende** der Dienstreihenfolge gehängt. Bei
+Der Dienst wird ohne Option **ans Ende** der Dienstreihenfolge gehängt. Bei
 aktivem WLAN bleibt WLAN die primäre Route; ohne WLAN übernimmt `feth100`.
 Das ist die dokumentierte Koexistenz-Entscheidung, kein stilles Übernehmen
 eines bestehenden Uplinks.
+
+### 2a. Tether als primärer Uplink (`connect --prefer`)
+
+`connect --prefer` setzt den reservierten Dienst über die feste
+Helper-Operation `PREFER` an den Anfang der Dienstreihenfolge. Die
+Reihenfolge wird nach dem Commit erneut gelesen; schlägt das fehl, bricht
+`connect` ab und räumt die Session wieder auf. Beim Beenden wird der Dienst
+entfernt, sodass die vorherige Reihenfolge ohne separaten Restore-Schritt
+wieder gilt.
+
+Der Hardware-Nachweis wurde am 1. November 2026 mit angestecktem Samsung
+`04e8:6863` und **eingeschaltetem WLAN** geführt. `networksetup
+-listnetworkserviceorder` führte den Tether auf Platz 1, vor USB-Ethernet,
+Thunderbolt Bridge und Wi-Fi:
+
+```text
+(1) Android USB Tethering (tetherd), Device: feth100
+(2) USB-Ethernet, Device: en7
+(3) Thunderbolt Bridge, Device: bridge0
+(4) Wi-Fi, Device: en0
+(5) VPN
+```
+
+`route -n get default` wählte danach das Telefon, obwohl `en0` weiterhin eine
+aktive Adresse (`<wifi-ip>`) hatte:
+
+```text
+gateway: <tether-gateway>
+interface: feth100
+      mtu: 1486
+```
+
+Ein normales `curl https://www.google.com` **ohne** `--interface` und ohne
+Deaktivieren von WLAN lieferte HTTP 200 über `<tether-ip>`, `remote_ip`
+`<google-ip>`; `https://ifconfig.me/ip` meldete die Mobilfunk-Adresse
+`<mobile-public-ip>`. Ping auf `8.8.8.8` war 4/4 erfolgreich (0 % Verlust,
+538–1527 ms). Ein 1-MB-Download und ein 1-MB-Upload über dieselbe Route
+lieferten HTTP 200 (22,7 s bzw. 17,6 s). Rohdaten:
+`target/g2-prefer/`.
+
+Nach `disconnect` war der Dienst entfernt, die Default Route lag wieder auf
+`en0` (`<wifi-gateway>`), und es blieben keine `feth`-Interfaces oder
+Tether-Dienste zurück.
 
 ### 3. Betrieb ohne anderen Internet-Uplink (G2-Kriterium 3)
 
@@ -189,6 +234,7 @@ Das ist als Optimierung dokumentiert, nicht als Korrektheitsfehler.
 | `disconnect` | erfolgreich; `feth`-Paar, Dienst und State-Datei entfernt |
 | erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
 | Replug, Tethering aus/an, Sleep/Wake (je 3×) | **noch offen** |
+| `connect --prefer` mit aktivem WLAN | **bestanden**: `feth100` primär, HTTP 200 ohne Interface-Bindung, WLAN blieb aktiv |
 | echter Gerätewechsel | **noch offen** |
 
 ### 6. Cleanup

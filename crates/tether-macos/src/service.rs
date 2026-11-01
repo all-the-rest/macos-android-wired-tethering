@@ -9,8 +9,9 @@
 //! macOS then runs DHCP, installs routes and resolves DNS itself.  A fixed
 //! service UUID makes leftovers recognizable and lets cleanup remove exactly
 //! this project's service, never an unrelated user service.  The service is
-//! appended to the current location's service order; it is not moved to the
-//! front, so an existing uplink keeps its precedence.
+//! appended to the current location's service order by default, so an existing
+//! uplink keeps its precedence.  `connect --prefer` moves it to the front
+//! instead; removing the service on disconnect restores the previous order.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -131,6 +132,43 @@ impl NetworkService {
     pub fn exists(&self, runner: &dyn PrefsRunner) -> Result<bool, String> {
         exists(runner)
     }
+
+    /// Move the reserved service to the front of the current location's
+    /// service order.  Used by `connect --prefer` when the tether should be
+    /// the primary uplink.  The service is removed on disconnect anyway, so
+    /// the original order returns without a separate restore step.
+    pub fn prefer(&self, runner: &dyn PrefsRunner) -> Result<(), String> {
+        prefer(runner)
+    }
+}
+
+fn prefer(runner: &dyn PrefsRunner) -> Result<(), String> {
+    if !exists(runner)? {
+        return Err("reserved network service is not present".to_string());
+    }
+    let set = current_set(runner)?;
+    let mut order = service_order(runner, &set)?;
+    order.retain(|id| id != SERVICE_ID);
+    order.insert(0, SERVICE_ID.to_string());
+    let script = format!("{}commit\napply\n", order_script(&set, &order));
+    let mut last_error = None;
+    for _ in 0..3 {
+        match runner.prefs(&script) {
+            Ok(_) => {
+                let updated = service_order(runner, &set).unwrap_or_default();
+                if updated.first().map(String::as_str) == Some(SERVICE_ID) {
+                    return Ok(());
+                }
+                last_error = Some("service order did not change".to_string());
+            }
+            Err(error) => last_error = Some(error),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    Err(format!(
+        "could not move network service to the front: {}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    ))
 }
 
 fn exists(runner: &dyn PrefsRunner) -> Result<bool, String> {
@@ -166,23 +204,33 @@ fn sets(runner: &dyn PrefsRunner) -> Result<Vec<String>, String> {
 fn service_order(runner: &dyn PrefsRunner, set: &str) -> Result<Vec<String>, String> {
     let text = runner
         .prefs(&format!("get {set}/Network/Global/IPv4\nd.show\n"))
-        .unwrap_or_default();
+        .map_err(|error| format!("cannot read network service order: {error}"))?;
     let mut in_order = false;
+    let mut closed = false;
     let mut order = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with("ServiceOrder") {
             in_order = true;
         } else if in_order && line == "}" {
+            closed = true;
             break;
-        } else if in_order {
-            if let Some((_, id)) = line.split_once(" : ") {
-                let id = id.trim();
-                if !id.is_empty() {
-                    order.push(id.to_string());
-                }
+        } else if in_order && !line.is_empty() {
+            let Some((_, id)) = line.split_once(" : ") else {
+                return Err(format!("malformed service order entry: {line}"));
+            };
+            let id = id.trim();
+            if id.is_empty() {
+                return Err("malformed service order entry: empty service ID".to_string());
             }
+            order.push(id.to_string());
         }
+    }
+    if !in_order {
+        return Err("scutil response has no ServiceOrder".to_string());
+    }
+    if !closed {
+        return Err("scutil returned a truncated service order".to_string());
     }
     Ok(order)
 }
@@ -270,26 +318,49 @@ mod tests {
     struct FakePrefs {
         scripts: RefCell<Vec<String>>,
         present: RefCell<bool>,
+        preferred: RefCell<bool>,
+        fail_order: RefCell<bool>,
+        omit_order: RefCell<bool>,
+        malformed_order: RefCell<bool>,
     }
 
     impl PrefsRunner for FakePrefs {
         fn prefs(&self, script: &str) -> Result<String, String> {
             self.scripts.borrow_mut().push(script.to_string());
+            if *self.fail_order.borrow() && script.contains("get /Sets/ABCD/Network/Global/IPv4") {
+                return Err("simulated read failure".to_string());
+            }
             let mut present = self.present.borrow_mut();
+            let mut preferred = self.preferred.borrow_mut();
             if script.contains(&format!("set /NetworkServices/{SERVICE_ID}"))
                 && script.contains("commit")
             {
                 *present = true;
+                *preferred = false;
+            }
+            if script.contains(&format!("d.add ServiceOrder * {SERVICE_ID} OTHER-SERVICE")) {
+                *preferred = true;
             }
             if script.contains(&format!("remove /NetworkServices/{SERVICE_ID}")) {
                 *present = false;
+                *preferred = false;
             }
             let mut output = String::new();
             if script.contains("get /") && script.contains("d.show") {
                 output.push_str("CurrentSet : /Sets/ABCD\n");
             }
             if script.contains("get /Sets/ABCD/Network/Global/IPv4") {
-                if *present {
+                if *self.omit_order.borrow() {
+                    return Ok(String::new());
+                }
+                if *self.malformed_order.borrow() {
+                    return Ok("ServiceOrder : <array> {\n  not-an-entry\n}\n".to_string());
+                }
+                if *present && *preferred {
+                    output.push_str(&format!(
+                        "ServiceOrder : <array> {{\n  0 : {SERVICE_ID}\n  1 : OTHER-SERVICE\n}}\n"
+                    ));
+                } else if *present {
                     output.push_str(&format!(
                         "ServiceOrder : <array> {{\n  0 : OTHER-SERVICE\n  1 : {SERVICE_ID}\n}}\n"
                     ));
@@ -321,6 +392,82 @@ mod tests {
         assert!(combined.contains(&format!("d.add ServiceOrder * OTHER-SERVICE {SERVICE_ID}")));
         assert!(combined.contains("commit"));
         assert!(combined.contains("apply"));
+    }
+
+    #[test]
+    fn prefer_moves_service_to_front_without_dropping_others() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        service.prefer(&runner).unwrap();
+        assert!(*runner.preferred.borrow());
+        let combined = runner.scripts.borrow().join("\n---\n");
+        assert!(combined.contains(&format!("d.add ServiceOrder * {SERVICE_ID} OTHER-SERVICE")));
+        assert!(!combined.contains("d.add ServiceOrder * OTHER-SERVICE\n"));
+    }
+
+    #[test]
+    fn prefer_requires_the_reserved_service() {
+        let runner = FakePrefs::default();
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        assert!(service.prefer(&runner).is_err());
+    }
+
+    #[test]
+    fn prefer_does_not_write_when_order_read_fails() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        *runner.fail_order.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        assert!(service.prefer(&runner).is_err());
+        assert!(!runner
+            .scripts
+            .borrow()
+            .iter()
+            .any(|script| script.contains("d.add ServiceOrder")));
+    }
+
+    #[test]
+    fn prefer_rejects_missing_service_order_without_writing() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        *runner.omit_order.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        assert!(service.prefer(&runner).is_err());
+        assert!(!runner
+            .scripts
+            .borrow()
+            .iter()
+            .any(|script| script.contains("d.add ServiceOrder")));
+    }
+
+    #[test]
+    fn prefer_rejects_malformed_service_order_without_writing() {
+        let runner = FakePrefs::default();
+        *runner.present.borrow_mut() = true;
+        *runner.malformed_order.borrow_mut() = true;
+        let service = NetworkService {
+            name: DEFAULT_SERVICE_NAME.into(),
+            interface: "feth100".into(),
+        };
+        assert!(service.prefer(&runner).is_err());
+        assert!(!runner
+            .scripts
+            .borrow()
+            .iter()
+            .any(|script| script.contains("d.add ServiceOrder")));
     }
 
     #[test]

@@ -92,7 +92,8 @@
         "crates/tether-cli/src/state.rs (read-only IPv4 status)",
         "scripts/macos-smoke.sh",
         "target/g1/net-smoke.json (10/10 checks)",
-        "docs/G2-VERIFICATION.md (feth100, DHCP <tether-ip>, DNS/default route, HTTPS without Wi-Fi)"
+        "docs/G2-VERIFICATION.md (feth100, DHCP <tether-ip>, DNS/default route, HTTPS without Wi-Fi)",
+        "target/g2-prefer/ (route via feth100 and HTTP 200 while Wi-Fi stays on)"
       ],
       "gaps": [
         "download throughput is about 53 KB/s with the single-threaded data path",

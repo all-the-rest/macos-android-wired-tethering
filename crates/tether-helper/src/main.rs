@@ -252,6 +252,7 @@ fn handle_client(
                 bpf_opener,
             ),
             "LINK" => handle_link(&session, &mut channel, &mut parts, runner),
+            "PREFER" => handle_prefer(&session, &mut channel, prefs),
             "DESTROY" => {
                 if let Some(resources) = session.take() {
                     resources.cleanup(runner, prefs);
@@ -396,6 +397,25 @@ fn handle_link(
     }
 }
 
+fn handle_prefer(
+    session: &Option<HelperSession>,
+    channel: &mut FdChannel,
+    prefs: &dyn PrefsRunner,
+) -> Result<(), String> {
+    let Some(resources) = session else {
+        channel
+            .send_line("ERR configuration no active session")
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    };
+    match resources.service.prefer(prefs) {
+        Ok(()) => channel.send_line("OK preferred").map_err(|e| e.to_string()),
+        Err(error) => channel
+            .send_line(&format!("ERR network {error}"))
+            .map_err(|e| e.to_string()),
+    }
+}
+
 struct HelperSession {
     pair: FethPair,
     service: NetworkService,
@@ -511,6 +531,7 @@ mod tests {
     struct FakePrefs {
         scripts: RefCell<Vec<String>>,
         present: RefCell<bool>,
+        preferred: RefCell<bool>,
     }
 
     impl PrefsRunner for FakePrefs {
@@ -525,7 +546,17 @@ mod tests {
                 output.push_str("CurrentSet : /Sets/ABCD\n");
             }
             if script.contains("get /Sets/ABCD/Network/Global/IPv4") {
-                output.push_str("ServiceOrder : <array> {\n  0 : OTHER-SERVICE\n}\n");
+                if *self.present.borrow() && *self.preferred.borrow() {
+                    output.push_str(&format!(
+                        "ServiceOrder : <array> {{\n  0 : {service_id}\n  1 : OTHER-SERVICE\n}}\n"
+                    ));
+                } else if *self.present.borrow() {
+                    output.push_str(&format!(
+                        "ServiceOrder : <array> {{\n  0 : OTHER-SERVICE\n  1 : {service_id}\n}}\n"
+                    ));
+                } else {
+                    output.push_str("ServiceOrder : <array> {\n  0 : OTHER-SERVICE\n}\n");
+                }
             }
             if script.contains("list /Sets") {
                 output.push_str("subKey = /Sets/ABCD\n");
@@ -534,9 +565,14 @@ mod tests {
                 && script.contains("commit")
             {
                 *self.present.borrow_mut() = true;
+                *self.preferred.borrow_mut() = false;
+            }
+            if script.contains(&format!("d.add ServiceOrder * {service_id} OTHER-SERVICE")) {
+                *self.preferred.borrow_mut() = true;
             }
             if script.contains(&format!("remove /NetworkServices/{service_id}")) {
                 *self.present.borrow_mut() = false;
+                *self.preferred.borrow_mut() = false;
             }
             Ok(output)
         }
@@ -671,6 +707,12 @@ mod tests {
                 .expect("link down response")
                 .expect("line"),
             "OK link-down"
+        );
+
+        channel.send_line("PREFER").expect("prefer");
+        assert_eq!(
+            channel.recv_line().expect("prefer response").expect("line"),
+            "OK preferred"
         );
 
         channel.send_line("DESTROY").expect("destroy");

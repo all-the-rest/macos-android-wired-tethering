@@ -112,6 +112,8 @@ android-tether diagnose --json
 # RNDIS-Verbindung im Vordergrund starten
 android-tether connect
 android-tether connect --device 1:5 --mtu 1500
+# Tether als primären Uplink verwenden, auch wenn WLAN aktiv bleibt
+android-tether connect --prefer
 # Nach einem Replug bis zu 120 s auf ein RNDIS-Gerät warten (0 = aus)
 android-tether connect --reconnect-timeout 120
 
@@ -152,9 +154,12 @@ Der Helper legt über `scutil --prefs` einen Dienst mit fester UUID
 
 - `DeviceName = fethN`, `Hardware = Ethernet`, `Type = Ethernet`
 - IPv4 `ConfigMethod = DHCP`
-- Eintrag im aktuellen Netzwerk-Set; der Dienst wird **ans Ende** der
-  Dienstreihenfolge gehängt, nicht nach vorne. Bei vorhandenem Uplink bleibt
-  dessen Priorität erhalten.
+- Eintrag im aktuellen Netzwerk-Set; standardmäßig wird der Dienst **ans Ende**
+  der Dienstreihenfolge gehängt. Bei vorhandenem Uplink bleibt dessen Priorität
+  erhalten. Mit `connect --prefer` wird der Dienst stattdessen an den Anfang
+  gesetzt und wird damit primärer Uplink, auch wenn WLAN aktiv bleibt (belegt
+  in `docs/G2-VERIFICATION.md`). Beim Beenden verschwindet der Dienst und die
+  vorherige Reihenfolge gilt wieder.
 - `feth` bleibt bis nach dem erfolgreichen RNDIS-Handshake administrativ down;
   erst dann wird der Link up geschaltet, damit macOS DHCP nicht verpasst.
 
@@ -168,8 +173,9 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 
 - USB-Deskriptoren und RNDIS-Nachrichten werden als nicht vertrauenswürdige
   Eingaben behandelt: Längen, Offsets, Alignment und Überläufe werden geprüft.
-- Der Root-Helper kennt nur feste Operationen (`CREATE`, `LINK`, `DESTROY`,
-  `PING`, `STATUS`); er nimmt keine beliebigen Interface- oder Dienstnamen an.
+- Der Root-Helper kennt nur feste Operationen (`CREATE`, `LINK`, `PREFER`,
+  `DESTROY`, `PING`, `STATUS`); er nimmt keine beliebigen Interface- oder
+  Dienstnamen an.
 - Der Unix-Socket ist auf den angegebenen Benutzer beschränkt; der Helper prüft
   zusätzlich die Peer-UID via `getpeereid`.
 - Logs enthalten keine Paketnutzdaten, Zugangsdaten oder Seriennummern.

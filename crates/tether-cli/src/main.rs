@@ -83,6 +83,10 @@ enum Commands {
         /// Override the host MAC address (must be unicast).
         #[arg(long)]
         mac: Option<String>,
+        /// Move the tether to the front of the network service order, intended
+        /// to make it the primary uplink while other interfaces stay connected.
+        #[arg(long)]
+        prefer: bool,
         /// Seconds to wait for the device after a disconnect (0 disables).
         #[arg(long, default_value_t = 60)]
         reconnect_timeout: u64,
@@ -122,8 +126,17 @@ fn run(cli: Cli) -> Result<()> {
             device,
             mtu,
             mac,
+            prefer,
             reconnect_timeout,
-        } => command_connect(cli.json, &cli.helper, device, mtu, mac, reconnect_timeout),
+        } => command_connect(
+            cli.json,
+            &cli.helper,
+            device,
+            mtu,
+            mac,
+            prefer,
+            reconnect_timeout,
+        ),
         Commands::Disconnect => command_disconnect(cli.json, &cli.helper),
         Commands::Cleanup => command_cleanup(cli.json, &cli.helper),
         Commands::Simulate { scenario } => command_simulate(cli.json, &scenario),
@@ -638,6 +651,7 @@ fn command_connect(
     selector: Option<String>,
     mtu_override: Option<u16>,
     mac_override: Option<String>,
+    prefer: bool,
     reconnect_timeout_secs: u64,
 ) -> Result<()> {
     let devices = list_devices()?;
@@ -670,6 +684,12 @@ fn command_connect(
     }
 
     let created = helper.create(mtu, &host_mac.to_string())?;
+    if prefer {
+        if let Err(error) = helper.prefer() {
+            let _ = helper.destroy();
+            return Err(error);
+        }
+    }
     let bpf = match BpfSocket::from_raw_fd(created.fd, &created.peer_iface) {
         Ok(bpf) => bpf,
         Err(error) => {

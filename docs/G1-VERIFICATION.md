@@ -31,7 +31,7 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`cargo test --workspace`, Log in
-`target/g1/test-workspace.log`): **125 bestanden, 0 fehlgeschlagen**.
+`target/g1/test-workspace.log`): **130 bestanden, 0 fehlgeschlagen**.
 Aufteilung:
 
 | Testbinary | Tests |
@@ -43,8 +43,8 @@ Aufteilung:
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
 | `tests/session.rs` | 25 (Host-MAC, Ordnung, Größen-Clamp, Reconnect, Sleep/Wake) |
-| `tether-helper` Unit-Tests | 6 (plist, Socket-Protokoll, CREATE/LINK/STATUS/DESTROY) |
-| `tether-macos` Unit-Tests | 21 (inkl. IOKit-Power-Monitor und Darwin-BPF-Header) |
+| `tether-helper` Unit-Tests | 6 (plist, Socket-Protokoll, CREATE/LINK/PREFER/STATUS/DESTROY) |
+| `tether-macos` Unit-Tests | 26 (inkl. IOKit-Power-Monitor, Darwin-BPF-Header und Dienstreihenfolge) |
 | `tether-usb` Unit-Tests | 3 (Claim-Plan, Selektor-Auflösung) |
 
 Testanzahl und Fehlversuche werden von `scripts/verify-g1.sh` zusätzlich in

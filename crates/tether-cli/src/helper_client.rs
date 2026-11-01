@@ -112,6 +112,12 @@ impl HelperClient {
         Ok(())
     }
 
+    /// Move the reserved service to the front of the macOS service order.
+    pub fn prefer(&mut self) -> Result<()> {
+        self.expect_ok("PREFER")?;
+        Ok(())
+    }
+
     pub fn destroy(&mut self) -> Result<()> {
         self.expect_ok("DESTROY")?;
         Ok(())

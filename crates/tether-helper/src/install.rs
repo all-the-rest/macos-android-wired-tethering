@@ -137,22 +137,14 @@ pub fn install(options: &InstallOptions) -> Result<(), String> {
     set_owner_and_mode(&options.plist, 0o644)?;
 
     // Remove a previous instance so a changed --allow-uid takes effect.
+    // `bootout` returns before the old process has fully exited, so retry the
+    // bootstrap instead of failing with a transient EIO right after an update.
     let _ = Command::new(LAUNCHCTL)
         .args(["bootout", &format!("system/{LABEL}")])
         .status();
-    let bootstrapped = Command::new(LAUNCHCTL)
-        .args(["bootstrap", "system"])
-        .arg(&options.plist)
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
+    let bootstrapped = bootstrap_with_retry(&options.plist);
     if !bootstrapped {
-        let loaded = Command::new(LAUNCHCTL)
-            .args(["load", "-w"])
-            .arg(&options.plist)
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
+        let loaded = load_with_retry(&options.plist);
         if !loaded {
             return Err(format!(
                 "launchctl could not load {}; inspect the plist and /var/log/android-tether-helper.log",
@@ -167,6 +159,42 @@ pub fn install(options: &InstallOptions) -> Result<(), String> {
     println!("  socket: {}", options.socket.display());
     println!("  log:    {LOG_PATH}");
     Ok(())
+}
+
+fn bootstrap_with_retry(plist: &Path) -> bool {
+    for attempt in 0..5 {
+        let loaded = Command::new(LAUNCHCTL)
+            .args(["bootstrap", "system"])
+            .arg(plist)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if loaded {
+            return true;
+        }
+        if attempt < 4 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    }
+    false
+}
+
+fn load_with_retry(plist: &Path) -> bool {
+    for attempt in 0..5 {
+        let loaded = Command::new(LAUNCHCTL)
+            .args(["load", "-w"])
+            .arg(plist)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if loaded {
+            return true;
+        }
+        if attempt < 4 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    }
+    false
 }
 
 pub fn uninstall(options: &UninstallOptions) -> Result<(), String> {

@@ -97,14 +97,18 @@ schreibt deshalb die SystemConfiguration-Präferenzen direkt über
 - `Interface = { DeviceName: fethN, Hardware: Ethernet, Type: Ethernet }`
 - `IPv4 = { ConfigMethod: DHCP }`
 - Eintrag im aktuellen `/Sets/<set>/Network/Service/<uuid>`
-- Dienst wird an das Ende der `ServiceOrder` gehängt
+- Dienst wird standardmäßig an das Ende der `ServiceOrder` gehängt
+- `connect --prefer` setzt ihn über eine feste `PREFER`-Operation an den
+  Anfang; die Reihenfolge wird nach dem Commit erneut gelesen und geprüft
 - `commit` und `apply`, mit drei Versuchen bei parallel geänderten
   Präferenzen
 
 Damit übernimmt macOS DHCP, Router, DNS und die Primärinterface-Entscheidung.
-Der Prototyp ändert die Dienstreihenfolge nicht zugunsten des Tethering-
-Dienstes; bei einem aktiven anderen Uplink bleibt dieser bevorzugt. Der
-Dienst wird beim Beenden und bei Socket-Verlust des Helpers entfernt.
+Ohne `--prefer` bleibt bei einem aktiven anderen Uplink dieser bevorzugt; mit
+`--prefer` wird der Tether primär, auch bei aktivem WLAN (Hardware-Nachweis in
+`docs/G2-VERIFICATION.md`). Der Dienst wird beim Beenden und bei
+Socket-Verlust des Helpers entfernt, wodurch auch die ursprüngliche
+Dienstreihenfolge ohne separaten Restore-Schritt wieder gilt.
 
 **Warum nicht SystemConfiguration-FFI?** Der Präferenzbaum ist über
 `scutil --prefs` auditierbar und in einem schmalen Root-Helper gekapselt. Eine
