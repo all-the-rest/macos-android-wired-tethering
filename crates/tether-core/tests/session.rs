@@ -128,6 +128,65 @@ fn invalid_pinned_host_mac_is_rejected() {
 }
 
 #[test]
+fn many_received_frames_preserve_order_and_counters() {
+    let (host, _) = macs();
+    let mut device = MockRndisDevice::new().with_host_mac(host.0);
+    for index in 0..200u16 {
+        device.queue_frame_to_host(arp(
+            host,
+            [10, 0, 0, 1],
+            [10, 0, (index / 256) as u8, (index % 256) as u8],
+        ));
+    }
+    let mut session = RndisSession::new(device, &mock_function(true), short_config()).unwrap();
+    session.initialize().unwrap();
+
+    let mut frames = Vec::new();
+    for _ in 0..100 {
+        let batch = session.receive_frames(Duration::from_millis(100)).unwrap();
+        if batch.is_empty() {
+            break;
+        }
+        frames.extend(batch);
+    }
+    assert_eq!(frames.len(), 200);
+    for (index, frame) in frames.iter().enumerate() {
+        let expected = [10, 0, (index / 256) as u8, (index % 256) as u8];
+        assert_eq!(&frame[38..42], &expected, "frame {index} out of order");
+    }
+    assert_eq!(session.stats().frames_rx, 200);
+    assert_eq!(session.stats().malformed_frames, 0);
+}
+
+#[test]
+fn many_sent_frames_preserve_order_and_counters() {
+    let (host, _) = macs();
+    let device = MockRndisDevice::new().with_host_mac(host.0);
+    let mut session = RndisSession::new(device, &mock_function(true), short_config()).unwrap();
+    session.initialize().unwrap();
+
+    let frames: Vec<Vec<u8>> = (0..200u16)
+        .map(|index| {
+            arp(
+                host,
+                [10, 0, 0, 1],
+                [10, 0, (index / 256) as u8, (index % 256) as u8],
+            )
+        })
+        .collect();
+    let refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    assert_eq!(session.send_frames(&refs).unwrap(), 200);
+
+    let received = session.transport().received_frames();
+    assert_eq!(received.len(), 200);
+    for (index, frame) in received.iter().enumerate() {
+        let expected = [10, 0, (index / 256) as u8, (index % 256) as u8];
+        assert_eq!(&frame[38..42], &expected, "frame {index} out of order");
+    }
+    assert_eq!(session.stats().frames_tx, 200);
+}
+
+#[test]
 fn multiple_frames_in_one_transfer_are_reassembled() {
     let (host, _phone) = macs();
     let mut device = MockRndisDevice::new().with_host_mac(host.0);

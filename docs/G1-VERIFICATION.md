@@ -31,7 +31,7 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **104 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **106 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
@@ -41,7 +41,7 @@ Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
-| `tests/session.rs` | 20 (inkl. gepinnter Host-MAC) |
+| `tests/session.rs` | 22 (inkl. gepinnter Host-MAC, 200-Frame-Ordnung) |
 | `tether-helper` Unit-Tests | 3 (LaunchDaemon-plist) |
 | `tether-macos` Unit-Tests | 18 |
 | `tether-usb` Unit-Tests | 1 (Claim-Plan) |
@@ -94,6 +94,23 @@ Die Läufe endeten ohne Crash. Exakte Zähler aus dem letzten Lauf:
 
 Exakte Logs: `target/g1/fuzz-*.log`. Fuzzing ist zeitlich begrenzt und kein
 Beweis vollständiger Abdeckung.
+
+### Coverage
+
+```text
+cargo llvm-cov --workspace --json --summary-only \
+  --output-path target/g1/coverage.json
+```
+
+Letzter Lauf (Commit siehe `target/g1-report.json`): **55,46 % Zeilen**
+(3.619 / 6.526), **58,43 % Regionen** und **53,87 % Funktionen**. Die
+Protokollkern-Module liegen deutlich höher (z. B. `rndis/message.rs` 85,6 %,
+`rndis/packet.rs` 86,0 %, `descriptor.rs` 83,2 % Zeilen). CLI-, Helper- und
+BPF-Pfade, die Root oder echte Hardware benötigen, sind dagegen kaum
+ausgeführt. LLVM liefert für dieses Target keine Branch-Coverage; die Zahl ist
+deshalb bewusst nicht als Branch-Abdeckung ausgewiesen. Der Bericht ist
+maschinenlesbar in `target/g1/coverage.json` und wird von
+`scripts/verify-g1.sh` in `target/g1-report.json` zusammengefasst.
 
 ### CLI-Simulation
 
@@ -168,10 +185,13 @@ Kriterium 4 nur teilweise ausgeführt wurde. Der korrekte Status lautet:
 ## Offene Lücken
 
 1. `net-smoke`/`connect` mit Root-Helper auf echter macOS-Instanz.
-2. Hotplug, Sleep/Wake, Langzeitbetrieb.
+2. Realer Replug, Sleep/Wake und Langzeitbetrieb; der synthetische
+   Reconnect-Supervisor ist implementiert, aber nicht auf Hardware ausgeführt.
 3. NCM/ECM-Delegation auf realer Hardware.
-4. Coverage-Bericht (derzeit nicht gemessen).
-5. Signierung, Notarisierung, launchd-Installation.
+4. Line-Coverage liegt bei ca. 55,6 %; Root-/Hardware-Pfade sind nicht
+   ausgeführt, Branch-Coverage wird von LLVM auf diesem Target nicht geliefert.
+5. Signierung und Notarisierung; die LaunchDaemon-Installation ist implementiert,
+   aber nicht als Root ausgeführt.
 6. G2: Samsung-Gerät, DHCP/DNS/HTTPS ohne anderen Uplink, 15-Minuten-Test,
    Wiederholungen, Cleanup.
 

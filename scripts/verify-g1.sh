@@ -52,6 +52,25 @@ if command -v cargo-fuzz >/dev/null 2>&1 && rustup run nightly rustc --version >
   done
 fi
 
+COVERAGE_STATUS="skipped"
+COVERAGE_LINES=""
+if command -v cargo-llvm-cov >/dev/null 2>&1 && rustup component list --installed 2>/dev/null | grep -q 'llvm-tools'; then
+  echo "== coverage =="
+  if cargo llvm-cov --workspace --json --summary-only \
+      --output-path target/g1/coverage.json >target/g1/coverage.log 2>&1; then
+    COVERAGE_STATUS="measured"
+    COVERAGE_LINES="$(python3 - target/g1/coverage.json <<'PY'
+import json, sys
+totals = json.load(open(sys.argv[1], encoding='utf-8'))["data"][0]["totals"]["lines"]
+print(f"{totals['covered']} {totals['count']} {totals['percent']:.2f}")
+PY
+)"
+  else
+    COVERAGE_STATUS="failed"
+    echo "coverage measurement failed; see target/g1/coverage.log"
+  fi
+fi
+
 echo "== net-smoke =="
 set +e
 NET_SMOKE_JSON="$(cargo run -q -p tether-cli -- net-smoke --json 2>/dev/null)"
@@ -72,15 +91,39 @@ if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 fi
 
-python3 - "$TEST_COUNT" "$TEST_PASSED" "$TEST_FAILED" "$FUZZ_STATUS" "$FUZZ_DETAIL" "$COMMIT" "$NET_SMOKE_STATE" <<'PY'
+python3 - "$TEST_COUNT" "$TEST_PASSED" "$TEST_FAILED" "$FUZZ_STATUS" "$FUZZ_DETAIL" "$COMMIT" "$NET_SMOKE_STATE" "$COVERAGE_STATUS" "$COVERAGE_LINES" <<'PY'
 import json, pathlib, sys
-count, passed, failed, fuzz_status, fuzz_detail, commit, smoke_state = sys.argv[1:]
+(count, passed, failed, fuzz_status, fuzz_detail, commit, smoke_state,
+ coverage_status, coverage_lines) = sys.argv[1:]
 req_path = pathlib.Path("docs/requirements.json")
 requirements = json.loads(req_path.read_text())["requirements"]
 req_summary = {"total": len(requirements)}
 for requirement in requirements:
     status = requirement["status"]
     req_summary[status] = req_summary.get(status, 0) + 1
+coverage = {"status": coverage_status}
+if coverage_status == "measured":
+    covered, total, percent = coverage_lines.split()
+    coverage.update({
+        "lines_covered": int(covered),
+        "lines_total": int(total),
+        "lines_percent": float(percent),
+        "report": "target/g1/coverage.json",
+    })
+else:
+    coverage["report"] = None
+limitations = [
+    "no real Android device",
+    "macOS feth/BPF smoke requires the privileged helper",
+    "no NCM/ECM data path",
+]
+if coverage_status == "measured":
+    limitations.append(
+        f"line coverage {coverage['lines_percent']:.2f}% overall; "
+        "root-only macOS/helper paths are not executed"
+    )
+else:
+    limitations.append("line coverage not measured")
 report = {
     "g1": {
         "protocol_core": "verified" if int(failed) == 0 else "failed",
@@ -91,14 +134,10 @@ report = {
     "fuzz": {"status": fuzz_status, "detail": fuzz_detail,
              "targets": ["descriptors", "rndis", "ethernet"],
              "max_total_time_seconds": 8},
+    "coverage": coverage,
     "build": {"target": "aarch64-apple-darwin", "status": "passed"},
     "requirements": req_summary,
-    "limitations": [
-        "no real Android device",
-        "macOS feth/BPF smoke requires the privileged helper",
-        "no NCM/ECM data path",
-        "no line/branch coverage report",
-    ],
+    "limitations": limitations,
 }
 pathlib.Path("target/g1-report.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report, indent=2))

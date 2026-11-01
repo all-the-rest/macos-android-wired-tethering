@@ -154,7 +154,9 @@ Der Helper legt über `scutil --prefs` einen Dienst mit fester UUID
 
 Beim Beenden entfernt der Helper den Dienst und das feth-Paar. Die feste UUID
 erlaubt `cleanup` auch nach einem abgestürzten Prozess, ohne fremde Dienste
-anzufassen.
+anzufassen. Ist die Zustandsdatei verloren gegangen, bittet `cleanup` den
+laufenden Helper zumindest um das Entfernen des reservierten Dienstes; ein
+feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 
 ## Sicherheit und Datenschutz
 

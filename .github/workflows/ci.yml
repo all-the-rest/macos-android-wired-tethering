@@ -19,12 +19,54 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: tests
         run: cargo test --workspace --all-targets
+      - name: validate requirement matrix
+        run: |
+          python3 - <<'PY'
+          import json
+          requirements = json.load(open("docs/requirements.json", encoding="utf-8"))["requirements"]
+          ids = {requirement["id"] for requirement in requirements}
+          expected = {f"F-{index:02d}" for index in range(1, 10)} | {
+              f"N-{index:02d}" for index in range(1, 7)
+          }
+          missing = expected - ids
+          if missing:
+              raise SystemExit(f"requirements matrix misses: {sorted(missing)}")
+          print(f"requirements matrix covers {len(expected)} F/N IDs")
+          PY
       - name: arm64 build
         run: cargo build --release --target aarch64-apple-darwin --workspace
       - name: verify artifact architecture
         run: |
           file target/aarch64-apple-darwin/release/android-tether
           file target/aarch64-apple-darwin/release/android-tether-helper
+
+  coverage:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      - name: coverage
+        run: |
+          mkdir -p target/g1
+          cargo llvm-cov --workspace --json --summary-only \
+            --output-path target/g1/coverage.json
+          python3 - <<'PY'
+          import json
+          totals = json.load(open("target/g1/coverage.json", encoding="utf-8"))["data"][0]["totals"]
+          lines = totals["lines"]
+          print(f"lines: {lines['covered']}/{lines['count']} ({lines['percent']:.2f}%)")
+          if lines["percent"] < 50.0:
+              raise SystemExit("line coverage fell below 50%")
+          PY
+      - name: upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-coverage
+          path: target/g1/coverage.json
 
   fuzz:
     runs-on: macos-latest

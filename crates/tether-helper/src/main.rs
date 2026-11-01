@@ -241,6 +241,11 @@ fn handle_client(
             "DESTROY" => {
                 if let Some(resources) = session.take() {
                     resources.cleanup(runner, prefs);
+                } else {
+                    // No live session, but a crashed CLI can leave the
+                    // reserved network service behind.  Remove only our
+                    // fixed UUID; unrelated services are never touched.
+                    let _ = tether_macos::service::remove_reserved(prefs);
                 }
                 channel.send_line("OK destroyed").map_err(|e| e.to_string())
             }

@@ -357,10 +357,33 @@ fn command_disconnect(json_output: bool) -> Result<()> {
 
 fn command_cleanup(json_output: bool, helper_path: &Path) -> Result<()> {
     let Some(state) = read_state()? else {
+        let mut helper_note = None;
+        let mut helper_cleaned = false;
+        match HelperClient::connect(helper_path) {
+            Ok(mut helper) => match helper.hello() {
+                Ok(()) => match helper.destroy() {
+                    Ok(()) => helper_cleaned = true,
+                    Err(error) => helper_note = Some(error.message),
+                },
+                Err(error) => helper_note = Some(error.message),
+            },
+            Err(error) => helper_note = Some(error.message),
+        }
         if json_output {
-            print_json(&json!({"cleaned": true, "reason": "no state"}))?;
+            print_json(&json!({
+                "cleaned": true,
+                "reason": "no state",
+                "helper_removed_reserved_service": helper_cleaned,
+                "helper": helper_note,
+            }))?;
         } else {
-            println!("Nothing to clean up.");
+            println!("Nothing to clean up (no state).");
+            if helper_cleaned {
+                println!("Asked the helper to remove the reserved network service.");
+            }
+            if let Some(note) = helper_note {
+                println!("Helper note: {note}");
+            }
         }
         return Ok(());
     };
