@@ -1,0 +1,26 @@
+// ratchet — fast, local gates for this repository.
+//
+// The first rule is an oversized-unit ratchet: Rust files above 800 lines may
+// only become fewer.  It is deliberately a count, not a boolean: main.rs is
+// already large, so a zero-tolerance gate would be red from day one.
+[
+  {
+    "name": "macos-tether",
+    "rules": {
+      "oversized-rust-file": {
+        "class": "oversized unit",
+        "incident": "tether-cli/src/main.rs grew to 1521 lines while adding connect/auto/agent modes, making review and test isolation harder",
+        "unit": "Rust files above 800 lines",
+        "direction": "ceiling",
+        "tier": "fast",
+        "count": {
+          "command": [
+            "sh",
+            "-c",
+            "find crates -name '*.rs' -print0 | xargs -0 wc -l | awk '$2 != \"total\" && $1 > 800 {n++} END {print n+0}'"
+          ]
+        }
+      }
+    }
+  }
+]

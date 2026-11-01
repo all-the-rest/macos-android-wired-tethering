@@ -9,6 +9,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mkdir -p target/g1
 
+echo "== ratchet fast gates =="
+if command -v ratchet >/dev/null 2>&1; then
+  ratchet check
+else
+  echo "ratchet not installed; skipping fast gates"
+fi
+
 echo "== rustfmt =="
 cargo fmt --all -- --check
 
