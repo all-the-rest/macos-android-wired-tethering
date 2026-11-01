@@ -473,4 +473,49 @@ mod tests {
         assert_eq!(claim_plan(&function(1, 2)), vec![1, 2]);
         assert_eq!(claim_plan(&function(1, 1)), vec![1]);
     }
+
+    fn device(bus: u8, address: u8) -> DeviceInfo {
+        DeviceInfo {
+            bus,
+            address,
+            vendor_id: 0x04e8,
+            product_id: 0x6860,
+            speed: "high".to_string(),
+            configurations: Vec::new(),
+            descriptor_error: None,
+        }
+    }
+
+    #[test]
+    fn resolves_unambiguous_selectors() {
+        let devices = vec![device(1, 5), device(1, 6)];
+        assert_eq!(resolve_selector("1:5", &devices).unwrap(), (1, 5));
+        assert_eq!(resolve_selector("1-6", &devices).unwrap(), (1, 6));
+        assert_eq!(resolve_selector("6", &devices).unwrap(), (1, 6));
+    }
+
+    #[test]
+    fn rejects_ambiguous_and_missing_selectors() {
+        let devices = vec![device(1, 5), device(2, 5)];
+        assert_eq!(
+            resolve_selector("5", &devices).unwrap_err().category,
+            ErrorCategory::Configuration
+        );
+        assert_eq!(
+            resolve_selector("1:9", &devices).unwrap_err().category,
+            ErrorCategory::UsbNotFound
+        );
+        assert_eq!(
+            resolve_selector("9", &devices).unwrap_err().category,
+            ErrorCategory::UsbNotFound
+        );
+        assert_eq!(
+            resolve_selector("x", &devices).unwrap_err().category,
+            ErrorCategory::Configuration
+        );
+        assert_eq!(
+            resolve_selector("999:1", &devices).unwrap_err().category,
+            ErrorCategory::Configuration
+        );
+    }
 }

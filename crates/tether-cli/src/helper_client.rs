@@ -227,3 +227,47 @@ pub fn probe(path: &Path) -> Result<()> {
     client.hello()?;
     client.ping()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_helper_error_categories() {
+        assert_eq!(
+            parse_error("ERR permission no").category,
+            ErrorCategory::PermissionRequired
+        );
+        assert_eq!(
+            parse_error("ERR busy in use").category,
+            ErrorCategory::UsbBusy
+        );
+        assert_eq!(
+            parse_error("ERR network down").category,
+            ErrorCategory::Network
+        );
+        assert_eq!(
+            parse_error("ERR protocol bad").category,
+            ErrorCategory::ProtocolViolation
+        );
+        assert_eq!(
+            parse_error("ERR configuration bad").category,
+            ErrorCategory::Configuration
+        );
+        assert_eq!(
+            parse_error("ERR helper gone").category,
+            ErrorCategory::HelperUnavailable
+        );
+        assert_eq!(
+            parse_error("ERR unknown whatever").category,
+            ErrorCategory::HelperUnavailable
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_helper_responses() {
+        let error = parse_error("OK not-an-error");
+        assert_eq!(error.category, ErrorCategory::HelperUnavailable);
+        assert!(error.message.contains("unexpected helper response"));
+    }
+}

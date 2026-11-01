@@ -478,3 +478,74 @@ fn check(socket_path: &Path) -> Result<(), String> {
     println!("protocol_version={PROTOCOL_VERSION}");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::io::{BufRead, BufReader, Write};
+
+    struct NoopRunner;
+    impl CommandRunner for NoopRunner {
+        fn run(&self, _program: &str, _args: &[&str]) -> Result<String, String> {
+            Ok(String::new())
+        }
+    }
+
+    #[derive(Default)]
+    struct FakePrefs {
+        scripts: RefCell<Vec<String>>,
+    }
+
+    impl PrefsRunner for FakePrefs {
+        fn prefs(&self, script: &str) -> Result<String, String> {
+            self.scripts.borrow_mut().push(script.to_string());
+            // Simulate a machine without the reserved network service.
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn helper_protocol_ping_status_and_destroy_without_session() {
+        // Keep the path short: Darwin's sockaddr_un limit is about 104 bytes.
+        let socket = std::path::PathBuf::from(format!(
+            "/tmp/android-tether-helper-test-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("bind test socket");
+        let uid = unsafe { libc::getuid() };
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            handle_client(stream, uid, &NoopRunner, &FakePrefs::default())
+        });
+
+        let mut stream = UnixStream::connect(&socket).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("read timeout");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+        let mut send = |line: &str| {
+            writeln!(stream, "{line}").expect("write command");
+            let mut response = String::new();
+            reader.read_line(&mut response).expect("read response");
+            response.trim().to_string()
+        };
+
+        assert_eq!(
+            send(&format!("HELLO {PROTOCOL_VERSION}")),
+            format!("OK {PROTOCOL_VERSION} android-tether-helper")
+        );
+        assert_eq!(send("PING"), "OK pong");
+        assert_eq!(send("STATUS"), "OK none");
+        assert_eq!(send("DESTROY"), "OK destroyed");
+        drop(send);
+        drop(reader);
+        drop(stream);
+        handle
+            .join()
+            .expect("helper thread")
+            .expect("helper result");
+        let _ = std::fs::remove_file(&socket);
+    }
+}

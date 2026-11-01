@@ -178,14 +178,18 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
   als native Delegation gemeldet; sie werden nicht vom eigenen Stack gefahren.
 - Der USB-Datenpfad ist synchron und single-threaded. Das ist für Korrektheit
   und den synthetischen Nachweis ausreichend, aber kein Durchsatzoptimum.
-- Hotplug, Sleep/Wake und automatische Wiederverbindung nach Abziehen sind nur
-  teilweise behandelt; die Engine hat begrenzte Reset-/Reconnect-Versuche.
+- Hotplug/Replug wird durch den Reconnect-Supervisor (`--reconnect-timeout`,
+  Standard 60 s) teilweise behandelt: feth/BPF/Dienst bleiben bestehen, die
+  Host-MAC wird gepinnt. Sleep/Wake und Langzeitbetrieb sind nicht auf Hardware
+  verifiziert.
 - IPv6 wird als Ethernet weitergeleitet, aber nicht separat verifiziert.
 - Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) ist in dieser Umgebung
   nicht als Root ausgeführt worden. Der entsprechende `net-smoke` ist
   implementiert, aber hier mit Status **skipped** dokumentiert.
-- Signierung, Notarisierung, launchd-Installation und eine öffentliche
-  Verteilung sind nicht Teil dieses Prototyps.
+- `android-tether-helper install/uninstall` verwaltet einen LaunchDaemon; der
+  Pfad ist unit-getestet (`plutil -lint`), aber nicht als Root ausgeführt.
+  Signierung, Notarisierung und eine öffentliche Verteilung sind nicht Teil
+  dieses Prototyps.
 
 ## Tests und CI
 
@@ -194,7 +198,15 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo build --release --target aarch64-apple-darwin --workspace
+
+# Coverage (benötigt cargo-llvm-cov + llvm-tools-preview)
+cargo llvm-cov --workspace --json --summary-only \
+  --output-path target/g1/coverage.json
 ```
+
+`scripts/verify-g1.sh` führt Formatierung, Clippy, Tests, arm64-Build, Fuzzing,
+Coverage und den (ggf. übersprungenen) macOS-Smoke-Test aus und schreibt
+`target/g1-report.json`.
 
 Fuzzing (nightly + cargo-fuzz):
 
