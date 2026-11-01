@@ -1,6 +1,6 @@
 # Skills-Marker
 
-agents-skills-consumed: 5aaa53f
+agents-skills-consumed: b336387
 geprüft am: 2026-11-01
 
 ## Skill-Stand
@@ -19,7 +19,9 @@ geprüft am: 2026-11-01
 | `report` | nein | | kein Issue-Report |
 | `skills-marker` | ja | diese Datei | |
 
-## Offen aus dem Bereich `5aaa53f..5aaa53f`
+## Offen aus dem Bereich `5aaa53f..b336387`
 
-_Kein Vor-Stand: Projekt wurde in diesem Lauf erstmals mit dem Skills-Repo
-abgeglichen._
+_Keine offenen Positionen: Die drei betroffenen Skills (`build-verify`,
+`codegraph-project-setup`, `skills-marker`) sind bereits angewendet; die
+Tracker-Umstellung auf GitHub Issues ist übernommen (PR reisi007/agents-skills#22)._
+Offene Projektarbeit steht in GitHub Issues, nicht in einer lokalen Liste.

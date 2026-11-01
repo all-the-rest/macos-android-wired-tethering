@@ -47,7 +47,7 @@ Benutzer-Agent mit `android-tether install-agent`.
 - Doku und Traceability aktualisieren: `README.md`, `docs/G2-VERIFICATION.md`,
   `docs/TRACEABILITY.md`, `docs/requirements.json`.
 - Keine erfundenen Nachweise: nicht gemessene Performance und nicht geprüfte
-  Gerätezustände bleiben ausdrücklich offen.
+  Gerätezustände bleiben ausdrücklich offen und stehen als Issue im Tracker.
 
 ## CodeGraph
 
@@ -70,7 +70,14 @@ Ein Commit pro Aufgabe, Conventional Commits. Es gibt ein GitHub-Remote unter
 Vor dem Push müssen fmt, Clippy, Tests und der arm64-Build grün sein.
 Hardware-Nachweise werden nicht durch CI ersetzt.
 
+Jeder Commit verlinkt sein Issue in der Nachricht: `Closes #N`, wenn er die
+Arbeit abschließt, sonst `Refs #N`. Gibt es kein Issue, wird das im Commit
+nicht vorgetäuscht.
+
 ## Offene Arbeit
 
-`AGENTS.todo.md` ist das Protokoll der offenen Arbeit; erledigte Einträge werden
-gelöscht, nicht als `[x]` geführt. Die Historie steht in Git.
+Der Tracker ist **GitHub Issues** im Repository. Es gibt keine
+`AGENTS.todo.md` und keine lokale Aufgabenliste als zweiten Backlog. Offene
+Arbeit wird als Issue angelegt, mit Akzeptanzkriterien und dem erwarteten
+Nachweis; erledigte Arbeit schließt das Issue über den Commit (`Closes #N`).
+Die Historie steht in Git und in den geschlossenen Issues.
