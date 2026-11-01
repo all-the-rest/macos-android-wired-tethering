@@ -1,0 +1,11 @@
+[package]
+name = "tether-macos"
+description = "macOS feth/BPF bridge and network service integration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+libc.workspace = true
+tether-core = { path = "../tether-core" }

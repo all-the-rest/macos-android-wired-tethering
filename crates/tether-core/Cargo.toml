@@ -1,0 +1,14 @@
+[package]
+name = "tether-core"
+description = "Hardware-independent RNDIS/CDC protocol core and synthetic test kit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+hex = "0.4"
+proptest = "1"

@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: tests
+        run: cargo test --workspace --all-targets
+      - name: arm64 build
+        run: cargo build --release --target aarch64-apple-darwin --workspace
+      - name: verify artifact architecture
+        run: |
+          file target/aarch64-apple-darwin/release/android-tether
+          file target/aarch64-apple-darwin/release/android-tether-helper
+
+  fuzz:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: build fuzz targets
+        run: cd fuzz && cargo fuzz build
+      - name: run descriptors
+        run: cd fuzz && cargo fuzz run descriptors -- -max_total_time=15 -print_final_stats=1
+      - name: run rndis
+        run: cd fuzz && cargo fuzz run rndis -- -max_total_time=15 -print_final_stats=1
+      - name: run ethernet
+        run: cd fuzz && cargo fuzz run ethernet -- -max_total_time=15 -print_final_stats=1
+
+  macos-smoke:
+    # The runner needs passwordless sudo and a usable feth/BPF stack.  This job
+    # is allowed to fail on hosted runners that do not expose feth; the
+    # protocol-core verification job above is the required gate.
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: privileged feth/BPF/network-service smoke
+        run: ./scripts/macos-smoke.sh

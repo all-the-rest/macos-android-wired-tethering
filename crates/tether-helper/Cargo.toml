@@ -1,0 +1,17 @@
+[package]
+name = "tether-helper"
+description = "narrowly scoped root helper for feth/BPF setup and cleanup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "android-tether-helper"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+libc.workspace = true
+tether-core = { path = "../tether-core" }
+tether-macos = { path = "../tether-macos" }

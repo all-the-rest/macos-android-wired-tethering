@@ -1,0 +1,11 @@
+[package]
+name = "tether-usb"
+description = "libusb transport and USB discovery for Android tethering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rusb.workspace = true
+tether-core = { path = "../tether-core" }

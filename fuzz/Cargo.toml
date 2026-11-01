@@ -1,0 +1,30 @@
+[package]
+name = "tether-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tether-core = { path = "../crates/tether-core" }
+
+[[bin]]
+name = "descriptors"
+path = "fuzz_targets/descriptors.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "rndis"
+path = "fuzz_targets/rndis.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "ethernet"
+path = "fuzz_targets/ethernet.rs"
+test = false
+doc = false

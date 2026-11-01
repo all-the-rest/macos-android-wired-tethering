@@ -1,0 +1,20 @@
+[package]
+name = "tether-cli"
+description = "android-tether command line interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "android-tether"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+tether-core = { path = "../tether-core" }
+tether-usb = { path = "../tether-usb" }
+tether-macos = { path = "../tether-macos" }
