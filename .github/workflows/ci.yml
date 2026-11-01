@@ -2,6 +2,9 @@ name: ci
 
 on:
   push:
+    # Tags are handled by release.yml; avoid a second full run per release.
+    branches:
+      - "**"
   pull_request:
 
 jobs:
