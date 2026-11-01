@@ -128,6 +128,18 @@ fn invalid_pinned_host_mac_is_rejected() {
 }
 
 #[test]
+fn maximum_total_size_clamps_frame_size() {
+    let device = MockRndisDevice::new().with_max_total_size(600);
+    let mut session = RndisSession::new(device, &mock_function(true), short_config()).unwrap();
+    let info = session.initialize().unwrap();
+    assert_eq!(info.max_frame_size, 600);
+    assert!(info
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("MAXIMUM_TOTAL_SIZE")));
+}
+
+#[test]
 fn many_received_frames_preserve_order_and_counters() {
     let (host, _) = macs();
     let mut device = MockRndisDevice::new().with_host_mac(host.0);

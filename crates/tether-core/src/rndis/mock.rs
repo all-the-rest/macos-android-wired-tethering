@@ -37,6 +37,7 @@ pub struct MockRndisDevice {
     pub max_packets_per_transfer: u32,
     pub packet_alignment_exponent: u32,
     pub max_frame_size: u32,
+    pub max_total_size: u32,
     pub link_speed: u32,
     pub link_up: bool,
     pub filter: u32,
@@ -77,6 +78,7 @@ impl MockRndisDevice {
             max_packets_per_transfer: 4,
             packet_alignment_exponent: 2,
             max_frame_size: 1514,
+            max_total_size: 1514,
             link_speed: 100_000_000,
             link_up: true,
             filter: 0,
@@ -116,6 +118,11 @@ impl MockRndisDevice {
 
     pub fn with_max_frame_size(mut self, size: u32) -> Self {
         self.max_frame_size = size;
+        self
+    }
+
+    pub fn with_max_total_size(mut self, size: u32) -> Self {
+        self.max_total_size = size;
         self
     }
 
@@ -224,7 +231,7 @@ impl MockRndisDevice {
             OID_802_3_PERMANENT_ADDRESS => self.permanent_mac.to_vec(),
             OID_802_3_CURRENT_ADDRESS => self.current_mac.to_vec(),
             OID_802_3_MAXIMUM_LIST_SIZE => 32u32.to_le_bytes().to_vec(),
-            OID_GEN_MAXIMUM_TOTAL_SIZE => self.max_frame_size.to_le_bytes().to_vec(),
+            OID_GEN_MAXIMUM_TOTAL_SIZE => self.max_total_size.to_le_bytes().to_vec(),
             OID_GEN_PHYSICAL_MEDIUM => self.physical_medium.to_le_bytes().to_vec(),
             OID_GEN_CURRENT_PACKET_FILTER => self.filter.to_le_bytes().to_vec(),
             OID_GEN_CURRENT_LOOKAHEAD => self.max_frame_size.to_le_bytes().to_vec(),

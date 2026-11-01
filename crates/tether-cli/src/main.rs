@@ -1157,6 +1157,16 @@ fn smoke_with_helper(helper_path: &Path) -> Result<Vec<Check>> {
         if up { "ok" } else { "failed" },
         if up { "pass" } else { "fail" },
     ));
+    let link_state = wait_interface_up(&created.host_iface, Duration::from_secs(2))?;
+    checks.push(check(
+        "link_state",
+        if link_state {
+            "host interface reports UP"
+        } else {
+            "host interface did not report UP"
+        },
+        if link_state { "pass" } else { "fail" },
+    ));
     let down = guard
         .client
         .as_mut()
@@ -1264,6 +1274,32 @@ fn wait_interface_absent(name: &str, timeout: Duration) -> Result<bool> {
     }
 }
 
+fn ifconfig_reports_up(output: &str) -> bool {
+    output
+        .lines()
+        .next()
+        .map(|line| line.contains("<UP,") || line.contains("<UP>"))
+        .unwrap_or(false)
+}
+
+fn wait_interface_up(name: &str, timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let output = Command::new("/sbin/ifconfig").arg(name).output();
+        if let Ok(output) = output {
+            if output.status.success()
+                && ifconfig_reports_up(&String::from_utf8_lossy(&output.stdout))
+            {
+                return Ok(true);
+            }
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Read-only check for our fixed service UUID.  No root privileges needed.
 fn scutil_service_exists() -> bool {
     use std::io::Write;
@@ -1301,4 +1337,30 @@ fn print_json(value: &Value) -> Result<()> {
             .map_err(|error| TetherError::internal(format!("cannot format JSON: {error}")))?
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_up_flag_from_ifconfig() {
+        assert!(ifconfig_reports_up(
+            "feth100: flags=8863<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST> mtu 1500\n"
+        ));
+        assert!(ifconfig_reports_up("feth100: flags=1<UP> mtu 1500\n"));
+        assert!(!ifconfig_reports_up(
+            "feth100: flags=8862<BROADCAST,SIMPLEX,MULTICAST> mtu 1500\n"
+        ));
+        assert!(!ifconfig_reports_up(""));
+    }
+
+    #[test]
+    fn reconnectable_categories_are_explicit() {
+        assert!(is_reconnectable(ErrorCategory::UsbNotFound));
+        assert!(is_reconnectable(ErrorCategory::UsbTransfer));
+        assert!(is_reconnectable(ErrorCategory::ProtocolTimeout));
+        assert!(!is_reconnectable(ErrorCategory::UsbPermission));
+        assert!(!is_reconnectable(ErrorCategory::Configuration));
+    }
 }

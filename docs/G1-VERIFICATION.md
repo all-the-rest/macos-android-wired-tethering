@@ -31,17 +31,17 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **108 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **111 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
-| `tether-cli` Unit-Tests | 5 (State, PID-Identität, IPv4-Parser) |
+| `tether-cli` Unit-Tests | 7 (State, PID-Identität, IPv4-Parser, ifconfig-Flags) |
 | `tether-cli` Integrationstests | 4 |
 | `tether-core` Unit-Tests | 28 |
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
-| `tests/session.rs` | 22 (inkl. gepinnter Host-MAC, 200-Frame-Ordnung) |
+| `tests/session.rs` | 23 (Host-MAC-Pinning, Frame-Ordnung, Größen-Clamp) |
 | `tether-helper` Unit-Tests | 4 (LaunchDaemon-plist inkl. `plutil -lint`) |
 | `tether-macos` Unit-Tests | 18 |
 | `tether-usb` Unit-Tests | 1 (Claim-Plan) |
@@ -102,8 +102,8 @@ cargo llvm-cov --workspace --json --summary-only \
   --output-path target/g1/coverage.json
 ```
 
-Letzter Lauf (Commit siehe `target/g1-report.json`): **55,25 % Zeilen**
-(3.640 / 6.588), **58,28 % Regionen** und **54,01 % Funktionen**. Die
+Letzter Lauf (Commit siehe `target/g1-report.json`): **55,64 % Zeilen**
+(3.694 / 6.639), **58,46 % Regionen** und **54,48 % Funktionen**. Die
 Protokollkern-Module liegen deutlich höher (z. B. `rndis/message.rs` 85,6 %,
 `rndis/packet.rs` 86,0 %, `descriptor.rs` 83,2 % Zeilen). CLI-, Helper- und
 BPF-Pfade, die Root oder echte Hardware benötigen, sind dagegen kaum

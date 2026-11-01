@@ -321,7 +321,7 @@ impl<T: UsbTransport> RndisSession<T> {
             ));
         }
 
-        let max_frame_size = match self.query_u32(OID_GEN_MAXIMUM_FRAME_SIZE) {
+        let mut max_frame_size = match self.query_u32(OID_GEN_MAXIMUM_FRAME_SIZE) {
             Ok(value) if (14..=1518).contains(&value) => value,
             Ok(value) => {
                 warnings.push(format!(
@@ -346,9 +346,10 @@ impl<T: UsbTransport> RndisSession<T> {
         if let Ok(total) = self.query_u32(OID_GEN_MAXIMUM_TOTAL_SIZE) {
             if total < max_frame_size {
                 warnings.push(format!(
-                    "OID_GEN_MAXIMUM_TOTAL_SIZE {} smaller than frame size {}",
+                    "OID_GEN_MAXIMUM_TOTAL_SIZE {} smaller than frame size {}; clamping",
                     total, max_frame_size
                 ));
+                max_frame_size = total.clamp(14, 1518);
             }
         } else {
             warnings.push("OID_GEN_MAXIMUM_TOTAL_SIZE unavailable".to_string());
