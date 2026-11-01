@@ -97,3 +97,9 @@ jobs:
           targets: aarch64-apple-darwin
       - name: privileged feth/BPF/network-service smoke
         run: ./scripts/macos-smoke.sh
+      - name: upload net-smoke result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-net-smoke
+          path: target/g1/net-smoke.json

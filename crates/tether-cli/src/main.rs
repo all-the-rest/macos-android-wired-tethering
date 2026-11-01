@@ -550,7 +550,16 @@ fn command_diagnose(json_output: bool, helper_path: &Path) -> Result<()> {
         Err(error) => checks.push(check("bpf0", &error.to_string(), "warn")),
     }
     match helper_client::probe(helper_path) {
-        Ok(()) => checks.push(check("helper", "reachable and authenticated", "pass")),
+        Ok(status) if status == "none" => checks.push(check(
+            "helper",
+            "reachable and authenticated; no active session",
+            "pass",
+        )),
+        Ok(status) => checks.push(check(
+            "helper",
+            &format!("reachable and authenticated; active session: {status}"),
+            "pass",
+        )),
         Err(error) => checks.push(check("helper", &error.message, "warn")),
     }
 

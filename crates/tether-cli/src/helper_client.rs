@@ -70,6 +70,11 @@ impl HelperClient {
         Ok(())
     }
 
+    /// Ask the helper whether it currently owns a feth/BPF session.
+    pub fn status(&mut self) -> Result<String> {
+        self.expect_ok("STATUS")
+    }
+
     pub fn create(&mut self, mtu: u16, host_mac: &str) -> Result<CreatedBridge> {
         self.channel
             .send_line(&format!("CREATE {mtu} {host_mac}"))
@@ -222,10 +227,11 @@ impl Drop for RemoteFrameIo {
     }
 }
 
-pub fn probe(path: &Path) -> Result<()> {
+pub fn probe(path: &Path) -> Result<String> {
     let mut client = HelperClient::connect(path)?;
     client.hello()?;
-    client.ping()
+    client.ping()?;
+    client.status()
 }
 
 #[cfg(test)]

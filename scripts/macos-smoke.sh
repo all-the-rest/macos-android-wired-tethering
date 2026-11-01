@@ -8,6 +8,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+mkdir -p target/g1
 
 cargo build --release --target aarch64-apple-darwin --workspace
 BIN="target/aarch64-apple-darwin/release"
@@ -36,4 +37,4 @@ if [ ! -S "$SOCKET" ]; then
   exit 1
 fi
 
-"$BIN/android-tether" --helper "$SOCKET" net-smoke --json
+"$BIN/android-tether" --helper "$SOCKET" net-smoke --json | tee target/g1/net-smoke.json
