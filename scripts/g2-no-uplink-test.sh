@@ -10,6 +10,8 @@ set -u
 
 OUT=${1:-target/g1/evidence/no-uplink}
 BIN=${BIN:-target/aarch64-apple-darwin/release/android-tether}
+TETHER_IFACE=${TETHER_IFACE:-feth100}
+TETHER_GATEWAY=${TETHER_GATEWAY:-$(ipconfig getoption "$TETHER_IFACE" router 2>/dev/null)}
 NETWORK_SETUP=/usr/sbin/networksetup
 ROUTE=/sbin/route
 FAIL=0
@@ -167,8 +169,9 @@ if ! scutil --nwi | grep -q 'Network interfaces: feth100$'; then
 fi
 
 echo "== DNS via phone ==" | tee -a "$OUT/summary.txt"
+[ -n "$TETHER_GATEWAY" ] || fail "cannot determine the tether gateway on $TETHER_IFACE"
 {
-    dig +time=5 +tries=1 +short @<tether-gateway> example.com
+    dig +time=5 +tries=1 +short "@$TETHER_GATEWAY" example.com
     echo "dig_rc=$?"
     dscacheutil -q host -a name example.com
     echo "dscacheutil_rc=$?"

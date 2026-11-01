@@ -9,7 +9,7 @@ G1-Stand. Sie ist **kein** G2-Nachweis; der reale Samsung-Lauf ist separat in
 | Feld | Wert |
 |---|---|
 | Mac | Apple Silicon (arm64) |
-| macOS | 27.2 (Build <build>) |
+| macOS | 27.x (Build redacted) |
 | Rust | rustc 1.99.1 (2026-10-13), cargo 1.99.1 |
 | Ziel | `aarch64-apple-darwin` |
 | libusb | vendored via `libusb1-sys` |

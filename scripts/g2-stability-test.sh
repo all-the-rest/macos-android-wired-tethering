@@ -5,8 +5,13 @@ set -u
 
 DURATION=${1:-900}
 OUT=${2:-target/g1/evidence/stability.log}
-SOURCE_IP=${SOURCE_IP:-<tether-ip>}
-GATEWAY=${GATEWAY:-<tether-gateway>}
+IFACE=${IFACE:-feth100}
+SOURCE_IP=${SOURCE_IP:-$(ipconfig getifaddr "$IFACE" 2>/dev/null)}
+GATEWAY=${GATEWAY:-$(ipconfig getoption "$IFACE" router 2>/dev/null)}
+if [ -z "$SOURCE_IP" ] || [ -z "$GATEWAY" ]; then
+    echo "cannot determine the tether IPv4 address or gateway for $IFACE" >&2
+    exit 1
+fi
 mkdir -p "$(dirname "$OUT")"
 : > "$OUT"
 

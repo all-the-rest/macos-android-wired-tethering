@@ -92,12 +92,13 @@
         "crates/tether-cli/src/state.rs (read-only IPv4 status)",
         "scripts/macos-smoke.sh",
         "target/g1/net-smoke.json (11/11 checks, including fallback priority)",
-        "docs/G2-VERIFICATION.md (feth100, DHCP <tether-ip>, DNS/default route, HTTPS without Wi-Fi)",
+        "docs/G2-VERIFICATION.md (feth100, DHCP lease, DNS/default route, HTTPS without Wi-Fi)",
         "target/g2-prefer/ (route via feth100 and HTTP 200 while Wi-Fi stays on)",
-        "crates/tether-core/src/engine.rs (batched host frames, 100 ms notification polling)"
+        "crates/tether-core/src/engine.rs (batched host frames, 100 ms notification polling)",
+        "real automated run on 2026-11-01: 3x replug, 1.82 MB/s (1 MB) and 7.35 MB/s (5 MB) download, 1.18 MB/s upload, ping avg 44.8 ms; Twitch confirmed smooth by the user"
       ],
       "gaps": [
-        "download throughput was about 44 KB/s before the hot-path batching change; hardware remeasurement is pending",
+        "Twitch playback is user-confirmed only; no automated video measurement",
         "IPv6 forwarding was not separately verified"
       ]
     },
@@ -116,12 +117,15 @@
         "real disconnect/connect cycle and 15-minute stability run",
         "docs/G2-VERIFICATION.md",
         "crates/tether-cli/src/agent.rs (LaunchAgent auto supervisor)",
-        "real user LaunchAgent installed and waiting for RNDIS"
+        "real user LaunchAgent installed and waiting for RNDIS",
+        "real auto-connect on attach, 3x replug with fresh DHCP lease, and launchctl kickstart restart on 2026-11-01",
+        "real sleep/wake cycle: system_sleep -> system_wake, reconnects=1, session restored"
       ],
       "gaps": [
-        "hardware sleep/wake, replug and device swap repetitions are still open",
+        "two more hardware sleep/wake repetitions are still open",
+        "tethering off/on was run 3x by the user; only one full session rebuild is visible in the monitor log",
         "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect",
-        "auto-connect on the next physical plug/replug is not yet verified on hardware"
+        "hardware device swap is still open"
       ]
     },
     {

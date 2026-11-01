@@ -15,8 +15,8 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 | F-03 RNDIS (MVP) | `tether-core/src/rndis/message.rs`, `oids.rs`, `packet.rs`, `rndis/session.rs`, `rndis/mock.rs` | `message.rs` Unit-Tests (Layout, Offset-Basis +8, 44-Byte-Packet, Reset/Indicate); `tests/session.rs` (Init, OID-Queries, Filter, Link, Keepalive, Reset/Reinit, Multi-Frame); `tests/negative.rs`; Fuzz-Target `rndis` | S-01 §§2.2.1–2.2.8, 2.2.14, 3.1, 3.1.2; S-02 |
 | F-04 CDC-NCM | `descriptor.rs::classify_configuration` erkennt `02/0D/00`, NCM-Funktionaldeskriptor, Dateninterface und Bulk-Paare; `DetectedFunction` meldet `DelegateNative` | `tests/descriptors.rs::identifies_ncm_and_delegates_to_native_driver` | S-03, S-04, S-05 |
 | F-05 CDC-ECM | Erkennung `02/06/00` + Ethernet-Funktionaldeskriptor; Delegation | `tests/descriptors.rs::identifies_ecm_and_delegates_to_native_driver` | S-03, S-05 |
-| F-06 Netzwerkintegration | `tether-core/src/net.rs` (FrameIo), `engine.rs`; `tether-macos/src/feth.rs`, `bpf.rs`, `service.rs` (inkl. `prefer` und `fallback` für die Dienstreihenfolge); macOS-DHCP/DNS/Routen durch Systemdienst; `state.rs` liest die vergebene IPv4-Adresse für `status` | `tests/session.rs` Basic/DHCP/Faults; `packet.rs` Reassembly; `feth.rs`/`service.rs`/`bpf.rs` Unit-Tests inkl. `prefer_...` und `fallback_...`; realer Lauf: `feth100`/`feth1100`, DHCP `<tether-ip>`, Gateway/DNS `<tether-gateway>`, Default Route und HTTPS ohne WLAN; `net-smoke` 11/11 inkl. `fallback_priority`; `connect --prefer` mit aktivem WLAN: Default Route `feth100`, HTTP 200 ohne Interface-Bindung | S-07 soweit relevant; PLAN F-06; [G2-VERIFICATION.md](G2-VERIFICATION.md) |
-| F-07 Lebenszyklus | `engine.rs` (Link-Status, Reset, begrenzte Reconnect-Versuche, Halt, Link down, `PowerHooks`), `tether-macos/src/power.rs` (IOKit `WillSleep`/`HasPoweredOn`), `tether-cli` Reconnect-Supervisor (feth/BPF bleibt erhalten, Host-MAC wird gepinnt, Timeout per `--reconnect-timeout`) und `auto`-Supervisor für den LaunchAgent, `testkit.rs` Reconnect-Szenario, `tether-helper` räumt bei Socket-Ende auf, `cli disconnect/cleanup` | `tests/session.rs::engine_recovers_from_a_transient_transfer_error`, `engine_run_stops_and_marks_link_down`, `media_indications_update_link_state`, `repeated_reset_and_initialize_cycles_stay_correlated`, `pinned_host_mac_overrides_the_device_value`, `reconnect_simulation_reuses_bridge_and_pins_host_mac`, `sleep_and_wake_events_update_link_and_reinitialize`; `power::tests`; realer `disconnect`/`connect`-Zyklus und 15-Minuten-Lauf; Agent installiert und wartend; **Lücken:** realer Sleep/Wake, Replug, Auto-Connect beim Anstecken und Gerätewechsel nicht auf Hardware getestet | S-01 §3.1; PLAN F-07 |
+| F-06 Netzwerkintegration | `tether-core/src/net.rs` (FrameIo), `engine.rs`; `tether-macos/src/feth.rs`, `bpf.rs`, `service.rs` (inkl. `prefer` und `fallback` für die Dienstreihenfolge); macOS-DHCP/DNS/Routen durch Systemdienst; `state.rs` liest die vergebene IPv4-Adresse für `status` | `tests/session.rs` Basic/DHCP/Faults; `packet.rs` Reassembly; `feth.rs`/`service.rs`/`bpf.rs` Unit-Tests inkl. `prefer_...` und `fallback_...`; realer Lauf: `feth100`/`feth1100`, DHCP-Lease, Gateway/DNS, Default Route und HTTPS ohne WLAN; `net-smoke` 11/11 inkl. `fallback_priority`; `connect --prefer` mit aktivem WLAN: Default Route `feth100`, HTTP 200 ohne Interface-Bindung; automatischer Lauf 1. Nov. 2026: 3× Replug, 1,82 MB/s (1 MB) und 7,35 MB/s (5 MB) Download, 1,18 MB/s Upload, Ping 44,8 ms, Twitch flüssig | S-07 soweit relevant; PLAN F-06; [G2-VERIFICATION.md](G2-VERIFICATION.md) |
+| F-07 Lebenszyklus | `engine.rs` (Link-Status, Reset, begrenzte Reconnect-Versuche, Halt, Link down, `PowerHooks`), `tether-macos/src/power.rs` (IOKit `WillSleep`/`HasPoweredOn`), `tether-cli` Reconnect-Supervisor (feth/BPF bleibt erhalten, Host-MAC wird gepinnt, Timeout per `--reconnect-timeout`) und `auto`-Supervisor für den LaunchAgent, `testkit.rs` Reconnect-Szenario, `tether-helper` räumt bei Socket-Ende auf, `cli disconnect/cleanup` | `tests/session.rs::engine_recovers_from_a_transient_transfer_error`, `engine_run_stops_and_marks_link_down`, `media_indications_update_link_state`, `repeated_reset_and_initialize_cycles_stay_correlated`, `pinned_host_mac_overrides_the_device_value`, `reconnect_simulation_reuses_bridge_and_pins_host_mac`, `sleep_and_wake_events_update_link_and_reinitialize`; `power::tests`; realer `disconnect`/`connect`-Zyklus und 15-Minuten-Lauf; Auto-Connect beim Anstecken, 3× Replug, ein Agent-Neustart und ein Sleep/Wake-Zyklus (`system_sleep`/`system_wake`, `reconnects=1`) bestanden; **Lücken:** zwei weitere Sleep/Wake-Zyklen, Gerätewechsel, Tethering-aus/an 3× nur per Nutzerbestätigung | S-01 §3.1; PLAN F-07 |
 | F-08 Diagnostik | `tether-cli/src/main.rs`: `list`, `status`, `diagnose`, `connect`, `disconnect`, `cleanup`, `install-agent`, `uninstall-agent`, `auto`, `simulate`, `net-smoke`; `state.rs` ohne Seriennummern | CLI-Läufe in `docs/G1-VERIFICATION.md`; realer `status` mit IPv4/Frames; `state.rs` Unit-Test; `simulate --json`; [G2-VERIFICATION.md](G2-VERIFICATION.md) | PLAN F-08 |
 | F-09 Installation/Deinstallation | arm64-Build dokumentiert; Helper mit festen Operationen; fester Service-UUID; `cleanup` entfernt nur eigene UUID; `android-tether-helper install/uninstall` verwaltet ein LaunchDaemon mit festem Label und entfernt den reservierten Dienst; `install-agent/uninstall-agent` verwalten einen Benutzer-LaunchAgent | `feth.rs`/`service.rs` Cleanup-Tests, `install.rs`- und `agent.rs`-plist-Tests; realer `install`-Lauf als Root, Agent als Benutzer installiert/entfernt/neu installiert und wartend, `net-smoke` 11/11, `disconnect` ohne Reste; **Lücke:** Signierung/Notarisierung, Helper-`uninstall` nicht separat ausgeführt, Auto-Connect beim Anstecken noch nicht auf Hardware geprüft | PLAN F-09, N-06 |
 
@@ -41,7 +41,7 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 | T-04 Negativ/Sicherheit | `tests/negative.rs`, `tests/properties.rs`, Fuzz-Targets | bestanden; Fuzz-Läufe in `docs/G1-VERIFICATION.md` |
 | T-05 Zustandsmaschine | `tests/session.rs` | bestanden; Init/Query/Set/Filter/Keepalive/Reset/Reinit/Link-Indications/Recovery |
 | T-06 Host-Brücke | `testkit.rs`, `simulate`; `bpf.rs`/`feth.rs`/`service.rs`; `net-smoke` | Mock-Integration bestanden; macOS-Runtime-Smoke als Root bestanden (feth, SCM_RIGHTS-BPF, Link, Dienst, Priorität 2, Cleanup; 11/11) |
-| T-07 Betrieb | `engine_run_stops...`, wiederholte Reset-Zyklen, Sleep/Wake-Hooks, Reconnect-Szenario, Fuzz | synthetisch bestanden; realer 15-Minuten-Lauf und ein `disconnect`/`connect`-Zyklus bestanden; Hardware-Sleep-Wake-/Replug-Wiederholungen offen |
+| T-07 Betrieb | `engine_run_stops...`, wiederholte Reset-Zyklen, Sleep/Wake-Hooks, Reconnect-Szenario, Fuzz | synthetisch bestanden; realer 15-Minuten-Lauf, 3× Replug, ein Sleep/Wake und ein Agent-Neustart bestanden; zwei Sleep/Wake-Zyklen und Gerätewechsel offen |
 | T-08 NCM/ECM | `tests/descriptors.rs` | bestanden für Klassifikation/Delegation; kein eigener NCM/ECM-Stack (bewusst) |
 
 ## Quellenbezug
@@ -64,17 +64,16 @@ Workspace; `cargo test --workspace --all-targets` führt sie aus.
 
 ## Offene Lücken
 
-1. G2 ist nur für die Kriterien 1–3 und den Cleanup-Teil von Kriterium 5
-   belegt; Modell-/Android-Version, Replug, Tethering aus/an und Sleep/Wake
-   je 3× stehen aus.
-2. Replug-, Tethering-aus/an- und Sleep/Wake-Wiederholungen fehlen; der
-   15-Minuten-Lauf und ein `disconnect`/`connect`-Zyklus sind bestanden.
+1. G2 ist für die Kriterien 1–3, 3× Replug, 3× Tethering aus/an
+   (Nutzerbestätigung) und 1× Sleep/Wake belegt; Modell-/Android-Version
+   und zwei weitere Sleep/Wake-Zyklen stehen aus.
+2. Der 15-Minuten-Lauf, ein `disconnect`/`connect`-Zyklus, 3× Replug und
+   ein Agent-Neustart sind bestanden; zwei Sleep/Wake-Zyklen und ein
+   Gerätewechsel fehlen.
 3. NCM/ECM werden nicht selbst gefahren; Delegation an macOS ist nur
    klassifiziert, nicht auf Hardware geprüft.
-4. Durchsatz war mit ca. 44 KB/s Download niedrig (synchroner,
-   single-threaded Datenpfad); Hot-Path-Optimierung (Batching, selteneres
-   Notification-Polling) ist implementiert, die Hardware-Messung danach steht
-   noch aus.
+4. Twitch wurde visuell vom Nutzer bestätigt; es gibt keine automatisierte
+   Wiedergabemessung.
 5. Signierung/Notarisierung und ein separater `uninstall`-Lauf fehlen.
 6. Fuzzing lief zeitlich begrenzt (ca. 8–9 s je Target); keine vollständige
    Abdeckungsgarantie.

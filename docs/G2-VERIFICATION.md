@@ -4,25 +4,32 @@ Stand: 1. November 2026. Dieses Protokoll dokumentiert den tatsächlich
 ausgeführten Lauf mit einem angeschlossenen Android-Gerät. Es ist **kein**
 Nachweis für alle Android-Modelle und noch kein vollständiges G2 nach
 `PLAN.md` §7: Die Kriterien 1–3 sind belegt, der 15-Minuten-Lauf aus
-Kriterium 4 ist bestanden. Replug-/Sleep-Wake-Wiederholungen und die
+Kriterium 4 ist bestanden, und der installierte LaunchAgent verbindet das
+Gerät beim Anstecken selbstständig. Drei Replug-Zyklen, drei
+Tethering-aus/an-Zyklen (Nutzerbestätigung) und ein Sleep/Wake-Zyklus sind
+auf Hardware nachgewiesen; zwei weitere Sleep/Wake-Zyklen und die
 Modell-/Android-Version stehen noch aus.
 
 ## Ergebnis in einem Satz
 
-Auf einem MacBook Pro (Apple <soc>, macOS 27.2, SIP aktiv) funktioniert
+Auf einem MacBook Pro (Apple Silicon, macOS 27.x, SIP aktiv) funktioniert
 USB-Tethering mit einem Samsung-Android-Gerät über **RNDIS**: DHCP, DNS,
-Default Route, ICMP und HTTPS laufen ohne WLAN-Uplink am Mac über das Telefon;
-1 MB Upload und 1 MB Download waren erfolgreich. Mit `connect --prefer` wird
-das Telefon auch bei eingeschaltetem WLAN zum primären Uplink, während die
-WLAN-Verbindung aktiv bleibt. Der privilegierte `feth`/BPF/`scutil`-Smoke-Test
-besteht.
+Default Route, ICMP und HTTPS laufen ohne WLAN-Uplink am Mac über das Telefon.
+Der installierte Benutzer-LaunchAgent verbindet das Gerät beim Anstecken
+selbstständig, übersteht Replug und Sleep/Wake und hält den Tether als
+Priorität 2 hinter dem aktuellen Default-Uplink. Nach der
+Hot-Path-Optimierung wurden 1,82 MB/s (1 MB Download), 7,35 MB/s (5 MB
+Download) und 1,18 MB/s Upload gemessen; Twitch lief flüssig. Mit
+`connect --prefer` wird das Telefon auch bei eingeschaltetem WLAN zum
+primären Uplink, während die WLAN-Verbindung aktiv bleibt. Der privilegierte
+`feth`/BPF/`scutil`-Smoke-Test besteht.
 
 ## Umgebung
 
 | Feld | Wert |
 |---|---|
-| Mac | MacBook Pro `<mac-model>`, Apple <soc>, <ram> |
-| macOS | 27.2 (Build <build>), Darwin 27.2.0 arm64 |
+| Mac | MacBook Pro (Apple Silicon), RAM redacted |
+| macOS | 27.x (Build redacted), Darwin 27.x arm64 |
 | SIP | `System Integrity Protection status: enabled` |
 | Authenticated Root | `enabled` |
 | Rust | rustc/cargo 1.99.1, Ziel `aarch64-apple-darwin` |
@@ -209,9 +216,64 @@ auto: waiting for an RNDIS tethering device
 auto: no RNDIS tethering device; waiting
 ```
 
-Der tatsächliche Ansteck-/Replug-Lauf mit dem Telefon war zu diesem Zeitpunkt
-noch offen, weil das Gerät abgezogen war. Der Agent ist installiert und
-laufbereit; der Nachweis muss nach dem nächsten Anstecken ergänzt werden.
+#### Nachweis am 1. November 2026 (automatischer Ansteck-/Replug-Lauf)
+
+Das Gerät wurde um 20:23:57Z (21:23:57 Ortszeit) angesteckt. Der bereits
+laufende Agent erkannte es ohne manuellen Befehl:
+
+```text
+auto: connecting to bus 001 address 002 04e8:6863 (1:2)
+```
+
+`android-tether status` meldete `connected: true`, `feth100`/`feth1100`,
+`<tether-ip>` und `service: Android USB Tethering (tetherd)`. Der
+Verbindungsprozess war der LaunchAgent selbst (PID 2154, PPID 1 = `launchd`,
+Kommando `... auto`), kein manuell gestarteter `connect`-Prozess.
+
+Die Dienstreihenfolge blieb bei Priorität 2 – direkt hinter dem aktuellen
+Default-Uplink:
+
+```text
+(1) USB-Ethernet, Device: en7
+(2) Thunderbolt Bridge, Device: bridge0
+(3) Wi-Fi, Device: en0
+(4) Android USB Tethering (tetherd), Device: feth100
+(5) VPN
+```
+
+`route -n get default` zeigte weiterhin `en0` mit Gateway `<wifi-gateway>`;
+der Tether hatte nur eine interface-gebundene Default-Route. Das ist die
+beabsichtigte Koexistenz: Wi-Fi bleibt primär, der Tether übernimmt erst
+ohne anderen Uplink.
+
+Drei Replug-Zyklen wurden im laufenden Monitor protokolliert
+(`target/g2-live-auto/repetitions.log`):
+
+| Zyklus | Getrennt | Wieder verbunden | DHCP |
+|---|---|---|---|
+| 1 | 20:31:37Z | 20:32:04Z | neue Lease |
+| 2 | 20:32:19Z | 20:32:31Z | neue Lease |
+| 3 | 20:33:45Z | 20:33:55Z | neue Lease nach dem Toggle |
+
+Jeder Zyklus baute das `feth`-Paar und den Dienst neu auf; der Agent
+protokollierte `connection ended` und `connecting` ohne manuellen Eingriff.
+
+Der Nutzer hat im Anschluss 3× Tethering aus/an ausgeführt. Ein Zyklus ist
+als vollständiger Session-Neuaufbau sichtbar (20:33:59Z getrennt, 20:34:08Z
+verbunden, DHCP-Lease erneuert); die übrigen Toggles blieben auf
+Session-Ebene ohne Abbruch. Die Aktion selbst ist Nutzerbestätigung, kein
+automatisch mitgezählter Messwert.
+
+Ein zusätzlicher Neustart des Agenten über
+`launchctl kickstart -k gui/501/all-the-rest.android-tether.auto` beendete
+die Session sauber (`cleanup: true`), startete den Agenten neu und
+verband das weiterhin angesteckte Gerät nach etwa 6 s erneut; die
+Dienstreihenfolge blieb `(4)`, die IPv4-Adresse wurde neu bezogen.
+
+Der eine durchgeführte Sleep/Wake-Zyklus ist im Monitor als
+`last_error=system_sleep` → `system_wake` mit `reconnects=1` sichtbar; die
+Session war danach wieder verbunden. Zwei weitere Sleep/Wake-Zyklen bleiben
+für die vollständige 3×-Zählung offen.
 
 ### 3. Betrieb ohne anderen Internet-Uplink (G2-Kriterium 3)
 
@@ -249,19 +311,29 @@ Uplink belegt, während der Mac keinen anderen Internet-Uplink hatte.
 
 ### 4. Datentransfer
 
-| Test | Ergebnis |
+Vor der Hot-Path-Optimierung:
+
+| Test | Ergebnis (vorher) |
 |---|---|
 | 1 MB Upload zu `https://speed.cloudflare.com/__up` | HTTP 200, 1.000.000 Bytes, 17,6 s (~57 KB/s) |
 | 1 MB Download von `https://speed.cloudflare.com/__down?bytes=1000000` | HTTP 200, 1.000.000 Bytes, 22,7 s (~44 KB/s) |
 | 10 MB Download | nach 60 s abgebrochen (2,7 MB), kein Fehler der Verbindung |
 
-Der Durchsatz ist für Twitch zu niedrig; auch der Ping lag im gleichen Lauf
-bei 0,5–1,5 s. Der Datenpfad ist synchron und single-threaded. Der Hot Path
-pollt Benachrichtigungen jetzt nur noch alle 100 ms, wartet nicht mehr auf
-leere BPF-Frames und bündelt Frames in einem RNDIS-Transfer. Eine neue
-Messung nach dieser Optimierung steht aus, weil das Gerät beim Test abgezogen
-wurde. Das ist als offene Performance-Arbeit dokumentiert, nicht als
-Korrektheitsfehler.
+Nach der Optimierung (Batching bis 64 Frames pro Transfer, finites
+1-ms-Receive-Drain, Notification-Polling alle 100 ms) wurde am 1. November
+2026 mit demselben Gerät über `--interface feth100` gemessen:
+
+| Test | Ergebnis (nachher) |
+|---|---|
+| 1 MB Download | HTTP 200, 1.000.000 Bytes, 0,55 s, **1,82 MB/s** |
+| 1 MB Upload | HTTP 200, 1.000.000 Bytes, 0,84 s, **1,18 MB/s** |
+| 5 MB Download | HTTP 200, 5.000.000 Bytes, 0,68 s, **7,35 MB/s** |
+| Ping 20× an `1.1.1.1` | 20/20, 0 % Verlust, 30,7/44,8/76,1 ms (min/avg/max), Jitter 12,5 ms |
+
+Das sind rund 21× (Upload) bis 170× (5-MB-Download) höhere Transferraten;
+der Ping sank von 0,5–1,5 s auf ca. 45 ms. Twitch wurde vom Nutzer bei
+laufendem Tether als flüssig bestätigt. Die Werte sind eine Momentaufnahme
+des Mobilfunknetzes, keine garantierte Dauerleistung.
 
 ### 5. Langzeit- und Fehlerfälle
 
@@ -270,11 +342,15 @@ Korrektheitsfehler.
 | 15-Minuten-Lauf mit Ping und HTTPS alle 15/60 s | **bestanden**: 905 s, 58 Pings, 0 Ping-Fehler, 16 HTTPS-Anfragen, 0 HTTPS-Fehler (`target/g1/evidence/stability.log`) |
 | `disconnect` | erfolgreich; `feth`-Paar, Dienst und State-Datei entfernt |
 | erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
-| Replug, Tethering aus/an, Sleep/Wake (je 3×) | **noch offen** |
+| Replug (3×) | **bestanden**: 20:31:37Z, 20:32:19Z, 20:33:45Z getrennt; jeweils automatisch neu verbunden; DHCP `.52`, `.180`, `.194` |
+| Tethering aus/an (3×) | **bestanden (Nutzerbestätigung)**: ein Zyklus erzwang einen vollständigen Session-Neuaufbau (20:33:59Z → 20:34:08Z), die übrigen blieben ohne Session-Abbruch |
+| Sleep/Wake (3×) | **teilweise**: 1× bestanden (`system_sleep` → `system_wake`, `reconnects=1`, danach verbunden); 2× offen |
 | `connect --prefer` mit aktivem WLAN | **bestanden**: `feth100` primär, HTTP 200 ohne Interface-Bindung, WLAN blieb aktiv |
 | Standard-Priorität 2 (`FALLBACK`) | **bestanden** im `net-smoke`: Dienst hinter dem Default-Uplink einsortiert |
-| Auto-Agent installiert und wartend | **bestanden**: LaunchAgent `running`, Log zeigt Warten auf RNDIS |
-| Auto-Connect beim echten Anstecken | **noch offen** (Gerät beim Test abgezogen) |
+| Auto-Agent installiert und wartend | **bestanden**: LaunchAgent `running`, `RunAtLoad`/`KeepAlive`, Log zeigt Warten auf RNDIS |
+| Auto-Connect beim echten Anstecken | **bestanden**: Agent-Log `auto: connecting ...`, PID 2154 mit PPID 1, `status` connected |
+| Agent-Neustart (`launchctl kickstart -k`) | **bestanden**: sauberes Cleanup, Neustart, Verbindung nach ca. 6 s |
+| Durchsatz nach Hot-Path-Optimierung | **bestanden**: 1,82 MB/s (1 MB Download), 7,35 MB/s (5 MB), 1,18 MB/s Upload; Twitch flüssig |
 | echter Gerätewechsel | **noch offen** |
 
 ### 6. Cleanup
