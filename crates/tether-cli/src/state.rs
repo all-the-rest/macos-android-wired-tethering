@@ -31,6 +31,9 @@ pub struct RuntimeState {
     pub helper_socket: String,
     pub host_mac: String,
     pub mtu: u16,
+    /// IPv4 address macOS assigned to the host interface, if any.
+    #[serde(default)]
+    pub ipv4: Option<String>,
     pub frames_phone_to_host: u64,
     pub frames_host_to_phone: u64,
     pub bytes_phone_to_host: u64,
@@ -177,6 +180,29 @@ pub fn process_matches(state: &RuntimeState) -> bool {
     command.contains("android-tether")
 }
 
+/// Read the IPv4 address macOS assigned to an interface.  This is a read-only
+/// observation; DHCP itself remains owned by macOS.
+pub fn interface_ipv4(interface: &str) -> Option<String> {
+    if interface.is_empty() {
+        return None;
+    }
+    let output = std::process::Command::new("/usr/sbin/ipconfig")
+        .args(["getifaddr", interface])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_ipv4_output(&output.stdout)
+}
+
+fn parse_ipv4_output(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes).trim().to_string();
+    text.parse::<std::net::Ipv4Addr>()
+        .ok()
+        .map(|address| address.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +226,7 @@ mod tests {
             helper_socket: "/var/run/android-tether-helper.sock".into(),
             host_mac: "02:00:00:00:00:01".into(),
             mtu: 1500,
+            ipv4: Some("192.168.42.2".into()),
             frames_phone_to_host: 0,
             frames_host_to_phone: 0,
             bytes_phone_to_host: 0,
@@ -236,5 +263,16 @@ mod tests {
     #[test]
     fn current_process_matches_its_own_state() {
         assert!(process_matches(&sample_state(std::process::id())));
+    }
+
+    #[test]
+    fn parses_ipv4_output_conservatively() {
+        assert_eq!(
+            parse_ipv4_output(b"192.168.42.2\n").as_deref(),
+            Some("192.168.42.2")
+        );
+        assert_eq!(parse_ipv4_output(b"fe80::1\n"), None);
+        assert_eq!(parse_ipv4_output(b""), None);
+        assert_eq!(parse_ipv4_output(b"not-an-address\n"), None);
     }
 }

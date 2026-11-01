@@ -288,4 +288,25 @@ mod tests {
         assert_eq!(options.plist, Path::new(DEFAULT_PLIST));
         assert_eq!(options.socket, Path::new(DEFAULT_SOCKET));
     }
+
+    #[test]
+    fn generated_plist_is_valid_property_list() {
+        let path = std::env::temp_dir().join(format!(
+            "android-tether-plist-{}-{}.plist",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let plist = launchd_plist(Path::new(DEFAULT_BINARY), Path::new(DEFAULT_SOCKET), 501);
+        fs::write(&path, plist).expect("write plist");
+        let status = Command::new("/usr/bin/plutil")
+            .args(["-lint"])
+            .arg(&path)
+            .status()
+            .expect("run plutil");
+        let _ = fs::remove_file(&path);
+        assert!(status.success(), "plutil rejected the generated plist");
+    }
 }

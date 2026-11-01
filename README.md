@@ -113,6 +113,7 @@ android-tether connect --reconnect-timeout 120
 
 # Status / Beenden / Aufräumen
 android-tether status --json
+# status zeigt zusätzlich die von macOS per DHCP gesetzte IPv4-Adresse, sobald vorhanden
 android-tether disconnect
 android-tether cleanup
 ```

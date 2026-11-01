@@ -86,6 +86,7 @@
         "crates/tether-macos/src/service.rs",
         "crates/tether-core/src/testkit.rs",
         "crates/tether-core/tests/session.rs",
+        "crates/tether-cli/src/state.rs (read-only IPv4 status)",
         "scripts/macos-smoke.sh"
       ],
       "gaps": [
@@ -204,7 +205,7 @@
       ],
       "gaps": [
         "CI workflow has not run on a remote runner",
-        "line coverage is about 55.5% overall; privileged macOS/helper paths are not executed",
+        "line coverage is about 55.2% overall; privileged macOS/helper paths are not executed",
         "LLVM does not emit branch coverage for this target"
       ]
     },

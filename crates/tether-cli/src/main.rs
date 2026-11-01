@@ -28,7 +28,9 @@ use tether_usb::discover::{list_devices, open_rndis, resolve_selector, DeviceInf
 use tether_usb::transport::LibusbTransport;
 
 use crate::helper_client::{CreatedBridge, HelperClient, RemoteFrameIo};
-use crate::state::{clear_state, now_unix, process_matches, read_state, write_state, RuntimeState};
+use crate::state::{
+    clear_state, interface_ipv4, now_unix, process_matches, read_state, write_state, RuntimeState,
+};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -290,6 +292,13 @@ fn command_status(json_output: bool) -> Result<()> {
     );
     println!("  service: {}", state.service);
     println!("  mtu: {}  host MAC: {}", state.mtu, state.host_mac);
+    println!(
+        "  IPv4: {}",
+        state
+            .ipv4
+            .as_deref()
+            .unwrap_or("none (DHCP pending or no peer)")
+    );
     println!(
         "  frames: phone->host {}  host->phone {}",
         state.frames_phone_to_host, state.frames_host_to_phone
@@ -664,6 +673,7 @@ fn command_connect(
         helper_socket: helper_path.display().to_string(),
         host_mac: host_mac.to_string(),
         mtu,
+        ipv4: None,
         frames_phone_to_host: 0,
         frames_host_to_phone: 0,
         bytes_phone_to_host: 0,
@@ -905,6 +915,7 @@ fn update_runtime(runtime: &mut RuntimeState, stats: &EngineStats) {
     runtime.bytes_host_to_phone = stats.bytes_host_to_phone;
     runtime.reconnects = stats.reconnects;
     runtime.last_error = stats.last_error.clone();
+    runtime.ipv4 = interface_ipv4(&runtime.host_iface);
 }
 
 fn choose_device<'a>(devices: &'a [DeviceInfo], selector: Option<&str>) -> Result<&'a DeviceInfo> {
@@ -1168,10 +1179,7 @@ fn smoke_with_helper(helper_path: &Path) -> Result<Vec<Check>> {
         if service_present { "pass" } else { "fail" },
     ));
     guard.cleanup()?;
-    let interfaces_after = ifconfig_list()?;
-    let removed = !interfaces_after
-        .iter()
-        .any(|name| name == &created.host_iface);
+    let removed = wait_interface_absent(&created.host_iface, Duration::from_secs(3))?;
     checks.push(check(
         "cleanup",
         if removed {
@@ -1240,6 +1248,20 @@ fn ifconfig_list() -> Result<Vec<String>> {
         .split_whitespace()
         .map(str::to_string)
         .collect())
+}
+
+fn wait_interface_absent(name: &str, timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let interfaces = ifconfig_list()?;
+        if !interfaces.iter().any(|interface| interface == name) {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Read-only check for our fixed service UUID.  No root privileges needed.
