@@ -1,0 +1,268 @@
+# G2-Verifikation: reales Samsung-Gerät über USB
+
+Stand: 1. November 2026. Dieses Protokoll dokumentiert den tatsächlich
+ausgeführten Lauf mit einem angeschlossenen Android-Gerät. Es ist **kein**
+Nachweis für alle Android-Modelle und noch kein vollständiges G2 nach
+`PLAN.md` §7: Die Kriterien 1–3 sind belegt, der 15-Minuten-Lauf aus
+Kriterium 4 ist bestanden. Replug-/Sleep-Wake-Wiederholungen und die
+Modell-/Android-Version stehen noch aus.
+
+## Ergebnis in einem Satz
+
+Auf einem MacBook Pro (Apple <soc>, macOS 27.2, SIP aktiv) funktioniert
+USB-Tethering mit einem Samsung-Android-Gerät über **RNDIS**: DHCP, DNS,
+Default Route, ICMP und HTTPS laufen ohne WLAN-Uplink am Mac über das Telefon;
+1 MB Upload und 1 MB Download waren erfolgreich. Der privilegierte
+`feth`/BPF/`scutil`-Smoke-Test besteht.
+
+## Umgebung
+
+| Feld | Wert |
+|---|---|
+| Mac | MacBook Pro `<mac-model>`, Apple <soc>, <ram> |
+| macOS | 27.2 (Build <build>), Darwin 27.2.0 arm64 |
+| SIP | `System Integrity Protection status: enabled` |
+| Authenticated Root | `enabled` |
+| Rust | rustc/cargo 1.99.1, Ziel `aarch64-apple-darwin` |
+| Build | Release, `cargo build --release --target aarch64-apple-darwin --workspace` |
+| Helper | LaunchDaemon `io.github.android-tether.helper`, läuft als Root |
+| Commit | HEAD des Fix-Commits; exakter Wert in `target/g1-report.json` und `git log -1` |
+
+## Gerät
+
+| Feld | Wert |
+|---|---|
+| USB-Produkt | `SAMSUNG_Android` |
+| Vendor/Product | `04e8:6863` (Samsung) |
+| USB-Geschwindigkeit | High Speed (480 Mbit/s), `bcdUSB` 0x0201 |
+| Konfiguration | 1, RNDIS Communications Control (Interface 0) + RNDIS Ethernet Data (Interface 1) |
+| Endpunkte | Control-Interrupt `0x82`, Bulk IN `0x81`, Bulk OUT `0x01` |
+| Seriennummer | vorhanden, aus Datenschutzgründen hier nicht dokumentiert |
+| Modell / Android-Version | über die RNDIS-only-Konfiguration nicht ablesbar (kein ADB-Interface aktiv); offener Punkt |
+
+Das Gerät wird über Deskriptoren als RNDIS erkannt, nicht über eine feste
+VID/PID-Liste. `android-tether list --all --json` meldet:
+
+```json
+{
+  "address": 2,
+  "bus": 1,
+  "configurations": [{
+    "functions": [{
+      "details": {
+        "bulk_in": 129,
+        "bulk_out": 1,
+        "control_alt": 0,
+        "control_class": "e0/01/03",
+        "control_interface": 0,
+        "data_alt": 0,
+        "data_interface": 1,
+        "interrupt_endpoint": 130,
+        "max_segment_size": null
+      },
+      "protocol": "RNDIS",
+      "reason": "RNDIS implementation available",
+      "support": "usable"
+    }],
+    "value": 1
+  }],
+  "descriptor_error": null,
+  "product_id": "6863",
+  "speed": "high",
+  "vendor_id": "04e8"
+}
+```
+
+## Durchgeführte Nachweise
+
+### 1. Privilegierter Helper und macOS-Smoke
+
+Der Helper wurde mit `android-tether-helper install --allow-uid 501` als
+LaunchDaemon installiert und gestartet:
+
+```text
+launchctl print system/io.github.android-tether.helper
+  state = running
+  program = /Library/PrivilegedHelperTools/android-tether-helper
+  properties = keepalive | runatload
+/var/run/android-tether-helper.sock  srw------- <user>:daemon
+```
+
+`android-tether net-smoke --json` (Exit 0, `passed=true`, `skipped=false`):
+
+| Check | Ergebnis |
+|---|---|
+| `feth_pair` | `feth100 <-> feth1100` |
+| `bpf_descriptor` | via `SCM_RIGHTS` übergeben und nutzbar |
+| `host_interface` | vorhanden |
+| `link_up` / `link_state` | ok / Interface meldet UP |
+| `link_down` | ok |
+| `network_service` | während der Session vorhanden |
+| `cleanup` | Interface wieder entfernt |
+
+Rohdaten: `target/g1/net-smoke.json`.
+
+### 2. Verbindung und DHCP
+
+`android-tether connect` meldet nach dem RNDIS-Handshake:
+
+```json
+{
+  "connected": true,
+  "protocol": "RNDIS",
+  "host_iface": "feth100",
+  "peer_iface": "feth1100",
+  "service": "Android USB Tethering (tetherd)",
+  "host_mac": "<host-mac>",
+  "mtu": 1486,
+  "ipv4": "<tether-ip>",
+  "last_error": null
+}
+```
+
+Der macOS-Netzwerkdienst bezieht per DHCP:
+
+| Feld | Wert |
+|---|---|
+| Adresse | `<tether-ip>/24` |
+| Router | `<tether-gateway>` |
+| DNS | `<tether-gateway>` |
+| Lease | 3599 s, T1 1799 s, T2 3149 s |
+| Vendor | `ANDROID_METERED` |
+
+Der Dienst wird bewusst **ans Ende** der Dienstreihenfolge gehängt. Bei
+aktivem WLAN bleibt WLAN die primäre Route; ohne WLAN übernimmt `feth100`.
+Das ist die dokumentierte Koexistenz-Entscheidung, kein stilles Übernehmen
+eines bestehenden Uplinks.
+
+### 3. Betrieb ohne anderen Internet-Uplink (G2-Kriterium 3)
+
+WLAN (`en0`) wurde für den Test abgeschaltet. Danach war `feth100` die einzige
+IPv4-Schnittstelle mit Default Route:
+
+```text
+scutil --nwi
+  feth100 : address <tether-ip>, reachable
+  Network interfaces: feth100
+
+route -n get default
+  gateway: <tether-gateway>
+  interface: feth100
+
+scutil --dns
+  nameserver[0] : <tether-gateway>
+  if_index : 25 (feth100)
+  reach    : Reachable, Directly Reachable Address
+```
+
+Ergebnisse (Rohdaten unter `target/g1/evidence/no-uplink/`):
+
+| Test | Ergebnis |
+|---|---|
+| `dig @<tether-gateway> example.com` | `<cloudflare-ip>`, `<cloudflare-ip>` |
+| `dscacheutil -q host -a name example.com` | aufgelöst über den Systemresolver |
+| `ping -c 4 8.8.8.8` | 4/4 Pakete, 0 % Verlust, 50–140 ms |
+| `curl https://www.google.com` **ohne** Interface-Bindung | HTTP 200, `remote_ip=<google-ip>` |
+| `curl https://ifconfig.me/ip` | `<mobile-public-ip>` |
+| WLAN danach wieder ein | `en0` aktiv, Default Route wieder `<wifi-gateway>` |
+
+Damit sind DNS, HTTPS und bidirektionaler Datentransfer über den Telefon-
+Uplink belegt, während der Mac keinen anderen Internet-Uplink hatte.
+
+### 4. Datentransfer
+
+| Test | Ergebnis |
+|---|---|
+| 1 MB Upload zu `https://speed.cloudflare.com/__up` | HTTP 200, 1.048.576 Bytes, 3,7 s |
+| 1 MB Download von `https://speed.cloudflare.com/__down?bytes=1000000` | HTTP 200, 1.000.000 Bytes, 18,8 s (~53 KB/s) |
+| 10 MB Download | nach 60 s abgebrochen (2,7 MB), kein Fehler der Verbindung |
+
+Der Durchsatz ist niedrig, weil der Datenpfad synchron und single-threaded ist
+und pro Iteration nur einen USB-Bulk-Transfer bzw. einen BPF-Frame verarbeitet.
+Das ist als Optimierung dokumentiert, nicht als Korrektheitsfehler.
+
+### 5. Langzeit- und Fehlerfälle
+
+| Test | Status |
+|---|---|
+| 15-Minuten-Lauf mit Ping und HTTPS alle 15/60 s | **bestanden**: 905 s, 58 Pings, 0 Ping-Fehler, 16 HTTPS-Anfragen, 0 HTTPS-Fehler (`target/g1/evidence/stability.log`) |
+| `disconnect` | erfolgreich; `feth`-Paar, Dienst und State-Datei entfernt |
+| erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
+| Replug, Tethering aus/an, Sleep/Wake (je 3×) | **noch offen** |
+| echter Gerätewechsel | **noch offen** |
+
+### 6. Cleanup
+
+Nach `android-tether disconnect`:
+
+```text
+android-tether status --json
+  {"connected": false, "reason": "no state file"}
+
+ifconfig -a | grep feth
+  (keine Ausgabe)
+networksetup -listallnetworkservices | grep -i tether
+  (keine Ausgabe)
+```
+
+`net-smoke` prüft denselben Cleanup-Pfad zusätzlich mit einem eigenen
+feth-Paar; alle zehn Checks bestehen.
+
+## Gefundene und behobene Fehler aus dem realen Lauf
+
+1. **CREATE-Antwort mit Leerzeichen im Dienstnamen**
+   `crates/tether-cli/src/helper_client.rs` zerlegte die Antwort mit
+   `split_whitespace()` und erwartete genau vier Felder. Der Default-Name
+   `Android USB Tethering (tetherd)` enthält Leerzeichen, wodurch jede reale
+   Verbindung mit `malformed CREATE response from helper` abbrach. Der Parser
+   verwendet jetzt `splitn(4, ' ')` und behandelt den Rest als Dienstnamen;
+   Regressionstests decken den realen Namen und unvollständige Antworten ab.
+
+2. **Darwin-`bpf_hdr` ist 18 Bytes lang**
+   `crates/tether-macos/src/bpf.rs` erwartete eine Kopfzeilenlänge von 20
+   Bytes. Der macOS-Kernel meldet im realen BPF-Read `bh_hdrlen = 18`
+   (8-Byte-`BPF_TIMEVAL`, zwei 32-Bit-Längen, 16-Bit-Kopfzeilenlänge, gepackt);
+   dadurch schlug der erste empfangene Frame mit `invalid bpf_hdr length` fehl.
+   Der Parser akzeptiert jetzt 18–64 Bytes, nutzt `bh_hdrlen` als Datenoffset
+   und richtet den nächsten Record weiter auf 4 Bytes aus. Ein Test deckt
+   zusätzlich die gepolsterte 20-Byte-Variante ab.
+
+## Bewertung gegen PLAN.md §7 (G2)
+
+| G2-Kriterium | Status |
+|---|---|
+| 1. Samsung erkannt, USB-Tethering aktiv, SIP normal | **erfüllt** (SIP enabled, Gerät `04e8:6863`, RNDIS) |
+| 2. nutzbares Interface, DHCP/IP/Gateway/DNS/Route nachvollziehbar | **erfüllt** (`feth100`, `<tether-ip>`, Gateway/DNS `<tether-gateway>`) |
+| 3. ohne anderen Uplink DNS/HTTPS/bidirektional | **erfüllt** (WLAN aus, HTTP 200, Ping 4/4, Upload/Download) |
+| 4. 15 Minuten + Replug/Tethering/Sleep/Wake je 3× | **teilweise**: 15-Minuten-Lauf bestanden; Replug/Tethering/Sleep/Wake offen |
+| 5. Cleanup ohne Reste | **erfüllt** für `disconnect` und `net-smoke`; `uninstall` noch nicht separat geprüft |
+| 6. Prüfprotokoll mit Gerät/Version/Commit/IP/Routing/Resultaten | **teilweise**: Modell/Android-Version über RNDIS nicht ablesbar; Commit-ID steht in `target/g1-report.json` |
+
+**Korrekte Aussage:** USB-Tethering funktioniert mit diesem konkreten
+Samsung-Gerät über RNDIS auf diesem Mac. Das ist **kein** Nachweis für alle
+Android-Modelle, für NCM/ECM-Hardware oder für Sleep/Wake/Replug.
+
+## Offene Punkte
+
+1. Samsung-Modell und Android-/One-UI-Version über ADB oder Telefon-UI
+   erfassen und im Protokoll ergänzen.
+2. Replug, Tethering aus/an und Sleep/Wake je dreimal auf Hardware testen.
+3. Durchsatz optimieren (gepipelined USB-Reader/Writer, mehrere Transfers pro
+   Iteration); aktuell ca. 53 KB/s Download.
+4. NCM/ECM-Delegation an echte Hardware prüfen.
+5. Signierung/Notarisierung und `uninstall`-Lauf.
+
+## Rohdaten
+
+- `target/g1/net-smoke.json`
+- `target/g1/evidence/status-live.json`
+- `target/g1/evidence/feth100.txt`
+- `target/g1/evidence/dhcp.txt`
+- `target/g1/evidence/routes.txt`
+- `target/g1/evidence/dns-via-phone.txt`
+- `target/g1/evidence/ping-gateway.txt`
+- `target/g1/evidence/curl-https-google.txt`
+- `target/g1/evidence/no-uplink/`
+- `target/g1/evidence/upload-1mb.txt`
+- `target/g1/evidence/download-1mb.txt`
+- `target/g1/evidence/stability.log`

@@ -55,7 +55,11 @@ zu einer langen Link-Local-Wartezeit führen.
 - `BIOCSBLEN` 256 KiB, `BIOCIMMEDIATE=1`, `BIOCSSEESENT=0`,
   `BIOCSHDRCMPLT=1`, `BIOCPROMISC=1`, `BIOCSETIF=<peer>`.
 - Gelesen wird ein Puffer mit mehreren `bpf_hdr`-Records; `bh_hdrlen`,
-  `bh_caplen` und `bh_datalen` werden validiert.
+  `bh_caplen` und `bh_datalen` werden validiert. Der reale macOS-Kernel
+  meldet `bh_hdrlen = 18` (8-Byte-`BPF_TIMEVAL`, zwei 32-Bit-Längen und eine
+  16-Bit-Kopfzeilenlänge, gepackt), nicht die 20 Byte von
+  `sizeof(struct bpf_hdr)` in Userspace. Der Parser akzeptiert 18–64 Byte und
+  nutzt `bh_hdrlen` als Datenoffset.
 - Geschrieben wird ein roher Ethernet-Frame. Die BPF-Schreibgrenze von ca.
   2048 Byte liegt über der hier verwendeten MTU von 1500, daher ist der
   zusätzliche AF_NDRV-Injektionsweg nicht nötig. AF_NDRV wäre nur für Jumbo-

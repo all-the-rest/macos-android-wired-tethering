@@ -113,14 +113,18 @@ if coverage_status == "measured":
 else:
     coverage["report"] = None
 limitations = [
-    "no real Android device",
-    "macOS feth/BPF smoke requires the privileged helper",
+    "real-device G2 verification is separate; this report covers synthetic G1 "
+    "plus the macOS runtime smoke",
     "no NCM/ECM data path",
 ]
+if smoke_state == "passed":
+    limitations.append("privileged feth/BPF/scutil paths executed by net-smoke")
+else:
+    limitations.append("macOS feth/BPF smoke requires the privileged helper")
 if coverage_status == "measured":
     limitations.append(
         f"line coverage {coverage['lines_percent']:.2f}% overall; "
-        "root-only macOS/helper paths are not executed"
+        "privileged helper paths are exercised only by the net-smoke check"
     )
 else:
     limitations.append("line coverage not measured")

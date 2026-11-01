@@ -29,7 +29,11 @@ const BIOCIMMEDIATE: libc::c_ulong = 0x8004_4270; // _IOW('B', 112, u_int)
 const BIOCSHDRCMPLT: libc::c_ulong = 0x8004_4275; // _IOW('B', 117, u_int)
 const BIOCSSEESENT: libc::c_ulong = 0x8004_4277; // _IOW('B', 119, u_int)
 
-const BPF_HEADER_LEN: usize = 20;
+// On Darwin the kernel reports `bh_hdrlen` as 18: the 8-byte BPF_TIMEVAL,
+// two 32-bit lengths and a 16-bit header length, packed without the two bytes
+// of trailing padding that `sizeof(struct bpf_hdr)` adds in userspace.
+const BPF_HEADER_LEN: usize = 18;
+const BPF_HEADER_MAX: usize = 64;
 const BPF_ALIGNMENT: usize = 4;
 const DEFAULT_BUFFER: u32 = 256 * 1024;
 
@@ -315,8 +319,13 @@ pub fn parse_bpf_packets(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
             bytes[offset + 15],
         ]) as usize;
         let header_len = u16::from_ne_bytes([bytes[offset + 16], bytes[offset + 17]]) as usize;
-        if header_len < BPF_HEADER_LEN {
-            return Err(TetherError::network("invalid bpf_hdr length"));
+        if !(BPF_HEADER_LEN..=BPF_HEADER_MAX).contains(&header_len) {
+            let end = (offset + 32).min(bytes.len());
+            return Err(TetherError::network(format!(
+                "invalid bpf_hdr length {header_len} at offset {offset} in {}-byte buffer: {:02x?}",
+                bytes.len(),
+                &bytes[offset..end]
+            )));
         }
         if caplen != datalen {
             return Err(TetherError::network(
@@ -397,6 +406,24 @@ mod tests {
         let mut record = bpf_record(&[0u8; 42]);
         record[16..18].copy_from_slice(&4u16.to_ne_bytes());
         assert!(parse_bpf_packets(&record).is_err());
+    }
+
+    #[test]
+    fn honors_padded_bpf_header_length() {
+        let frame = ethernet::build_arp_request(
+            ethernet::MacAddr([0x02, 0, 0, 0, 0, 1]),
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+        );
+        let mut record = vec![0u8; 20];
+        record[8..12].copy_from_slice(&(frame.len() as u32).to_ne_bytes());
+        record[12..16].copy_from_slice(&(frame.len() as u32).to_ne_bytes());
+        record[16..18].copy_from_slice(&20u16.to_ne_bytes());
+        record.extend_from_slice(&frame);
+        while record.len() % BPF_ALIGNMENT != 0 {
+            record.push(0);
+        }
+        assert_eq!(parse_bpf_packets(&record).unwrap(), vec![frame]);
     }
 
     #[test]

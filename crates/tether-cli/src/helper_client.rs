@@ -92,13 +92,7 @@ impl HelperClient {
         if !line.starts_with("OK ") {
             return Err(parse_error(&line));
         }
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() != 4 {
-            return Err(TetherError::new(
-                ErrorCategory::HelperUnavailable,
-                "malformed CREATE response from helper",
-            ));
-        }
+        let (host_iface, peer_iface, service) = parse_create_response(&line)?;
         let fd = self.channel.take_fd().ok_or_else(|| {
             TetherError::new(
                 ErrorCategory::HelperUnavailable,
@@ -106,9 +100,9 @@ impl HelperClient {
             )
         })?;
         Ok(CreatedBridge {
-            host_iface: fields[1].to_string(),
-            peer_iface: fields[2].to_string(),
-            service: fields[3].to_string(),
+            host_iface,
+            peer_iface,
+            service,
             fd,
         })
     }
@@ -148,6 +142,24 @@ fn helper_io(error: std::io::Error) -> TetherError {
         ErrorCategory::HelperUnavailable,
         format!("helper protocol error: {error}"),
     )
+}
+
+/// Parse `OK <host> <peer> <service>`.  The service name is the last field
+/// and may contain spaces (the default name does), so only the first three
+/// separators are significant.
+fn parse_create_response(line: &str) -> Result<(String, String, String)> {
+    let mut fields = line.splitn(4, ' ');
+    let tag = fields.next().unwrap_or_default();
+    let host = fields.next().unwrap_or_default();
+    let peer = fields.next().unwrap_or_default();
+    let service = fields.next().unwrap_or_default().trim();
+    if tag != "OK" || host.is_empty() || peer.is_empty() || service.is_empty() {
+        return Err(TetherError::new(
+            ErrorCategory::HelperUnavailable,
+            "malformed CREATE response from helper",
+        ));
+    }
+    Ok((host.to_string(), peer.to_string(), service.to_string()))
 }
 
 fn parse_error(line: &str) -> TetherError {
@@ -275,5 +287,28 @@ mod tests {
         let error = parse_error("OK not-an-error");
         assert_eq!(error.category, ErrorCategory::HelperUnavailable);
         assert!(error.message.contains("unexpected helper response"));
+    }
+
+    #[test]
+    fn parses_create_response_with_spaces_in_service_name() {
+        let (host, peer, service) =
+            parse_create_response("OK feth100 feth1100 Android USB Tethering (tetherd)")
+                .expect("valid response");
+        assert_eq!(host, "feth100");
+        assert_eq!(peer, "feth1100");
+        assert_eq!(service, "Android USB Tethering (tetherd)");
+    }
+
+    #[test]
+    fn rejects_incomplete_create_response() {
+        for line in [
+            "OK",
+            "OK feth100",
+            "OK feth100 feth1100",
+            "ERR network down",
+        ] {
+            let error = parse_create_response(line).expect_err(line);
+            assert_eq!(error.category, ErrorCategory::HelperUnavailable);
+        }
     }
 }

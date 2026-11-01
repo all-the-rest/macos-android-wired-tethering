@@ -6,12 +6,16 @@ echtes `feth`-Ethernet-Paar, dessen Host-Seite als normale macOS-Netzwerk­diens
 Verbindung mit DHCP, Routen und DNS betrieben wird. Es gibt keinen Kernel-
 Extension, keine SIP-Änderung und keinen DriverKit-Entitlement-Antrag.
 
-> **Status:** Prototyp ohne Verifikation an einem echten Android-Gerät.
-> Der synthetische Protokollkern, die Mock-USB-/Ethernet-Integration und der
-> arm64-Build sind verifiziert. Ein Lauf gegen ein Samsung-Gerät (G2) ist
-> ausdrücklich **nicht** durchgeführt. Der privilegierte macOS-Smoke-Test
-> (`net-smoke`) benötigt den Root-Helper und wurde in dieser Umgebung nicht
-> ausgeführt; siehe [docs/G1-VERIFICATION.md](docs/G1-VERIFICATION.md).
+> **Status:** Der Prototyp wurde am 1. November 2026 mit einem realen
+> Samsung-Android-Gerät (USB `04e8:6863`, RNDIS) über USB-Tethering getestet.
+> DHCP, DNS, Default Route, ICMP, HTTPS sowie ein 1-MB-Download und ein
+> 1-MB-Upload funktionierten, auch **ohne WLAN-Uplink am Mac**. Der
+> privilegierte macOS-Smoke-Test (`net-smoke`) besteht; der Helper läuft als
+> LaunchDaemon. Einzelheiten und Rohdaten:
+> [docs/G2-VERIFICATION.md](docs/G2-VERIFICATION.md). Die exakte
+> Modell-/Android-Version ist über die RNDIS-only-USB-Konfiguration nicht
+> ablesbar; der 15-Minuten-Lauf ist bestanden, Replug- und Sleep/Wake-
+> Wiederholungen stehen noch aus.
 
 ## Architektur
 
@@ -177,20 +181,22 @@ feth-Paar kann ohne gespeicherte Namen nicht sicher zugeordnet werden.
 - **Nur RNDIS** wird aktiv implementiert. CDC-NCM und CDC-ECM werden erkannt und
   als native Delegation gemeldet; sie werden nicht vom eigenen Stack gefahren.
 - Der USB-Datenpfad ist synchron und single-threaded. Das ist für Korrektheit
-  und den synthetischen Nachweis ausreichend, aber kein Durchsatzoptimum.
+  ausreichend, aber kein Durchsatzoptimum: im realen Test wurden rund 50 KB/s
+  Download bzw. rund 280 KB/s Upload gemessen. Ein gepipeliner Datenpfad ist
+  die naheliegende nächste Optimierung.
 - Hotplug/Replug wird durch den Reconnect-Supervisor (`--reconnect-timeout`,
   Standard 60 s) behandelt: feth/BPF/Dienst bleiben bestehen, die Host-MAC
   wird gepinnt. Sleep/Wake ist über IOKit-Power-Benachrichtigungen angebunden
   (Link down bei `WillSleep`, RESET/Reinitialisierung bei `HasPoweredOn`);
-  beides ist synthetisch getestet, aber nicht auf Hardware verifiziert.
+  beides ist synthetisch getestet, aber noch nicht auf Hardware verifiziert.
 - IPv6 wird als Ethernet weitergeleitet, aber nicht separat verifiziert.
-- Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) ist in dieser Umgebung
-  nicht als Root ausgeführt worden. Der entsprechende `net-smoke` ist
-  implementiert, aber hier mit Status **skipped** dokumentiert.
-- `android-tether-helper install/uninstall` verwaltet einen LaunchDaemon; der
-  Pfad ist unit-getestet (`plutil -lint`), aber nicht als Root ausgeführt.
-  Signierung, Notarisierung und eine öffentliche Verteilung sind nicht Teil
-  dieses Prototyps.
+- Die macOS-Integration (`feth`, BPF, `scutil`-Dienst) wurde auf diesem Mac als
+  Root ausgeführt. `android-tether net-smoke --json` besteht alle zehn Checks
+  (feth-Paar, SCM_RIGHTS-BPF, Link up/down, Dienst, Cleanup).
+- `android-tether-helper install` wurde als Root ausgeführt und der Helper
+  läuft als LaunchDaemon. `uninstall` ist implementiert, aber noch nicht in
+  einem eigenen Lauf geprüft. Signierung, Notarisierung und eine öffentliche
+  Verteilung sind nicht Teil dieses Prototyps.
 
 ## Tests und CI
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "PLAN.md (Version 1.0, 1 November 2026)",
-  "scope": "synthetic prototype; no real Android device and no completed privileged macOS run",
+  "scope": "prototype with synthetic G1 verification and a real Samsung RNDIS G2 run (criteria 1-3, partial 4/5); see docs/G2-VERIFICATION.md",
   "requirements": [
     {
       "id": "F-01",
@@ -22,14 +22,17 @@
       "id": "F-02",
       "kind": "functional",
       "title": "Coexistence with ADB, MTP, charging and native drivers",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "crates/tether-usb/src/discover.rs (claim_plan + claims_only_control_and_data_interfaces)",
-        "crates/tether-cli/src/main.rs"
+        "crates/tether-cli/src/main.rs",
+        "real Samsung 04e8:6863 run: only RNDIS interfaces 0/1 claimed",
+        "docs/G2-VERIFICATION.md"
       ],
       "gaps": [
-        "no automated libusb claim test against a real composite device",
-        "kernel_driver_active path is implemented but not exercised on hardware"
+        "no automated libusb claim test in CI",
+        "other USB configurations/models not tested",
+        "kernel_driver_active path not triggered because macOS has no RNDIS driver"
       ]
     },
     {
@@ -79,7 +82,7 @@
       "id": "F-06",
       "kind": "functional",
       "title": "macOS network integration (feth/BPF/DHCP/DNS/MTU)",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "crates/tether-macos/src/feth.rs",
         "crates/tether-macos/src/bpf.rs",
@@ -87,11 +90,13 @@
         "crates/tether-core/src/testkit.rs",
         "crates/tether-core/tests/session.rs",
         "crates/tether-cli/src/state.rs (read-only IPv4 status)",
-        "scripts/macos-smoke.sh"
+        "scripts/macos-smoke.sh",
+        "target/g1/net-smoke.json (10/10 checks)",
+        "docs/G2-VERIFICATION.md (feth100, DHCP <tether-ip>, DNS/default route, HTTPS without Wi-Fi)"
       ],
       "gaps": [
-        "privileged feth/BPF/scutil runtime smoke skipped: helper not started as root",
-        "DHCP/DNS/default-route behaviour inside macOS not observed end to end"
+        "download throughput is about 53 KB/s with the single-threaded data path",
+        "IPv6 forwarding was not separately verified"
       ]
     },
     {
@@ -105,10 +110,12 @@
         "crates/tether-core/tests/session.rs (sleep/wake + reconnect)",
         "crates/tether-macos/src/power.rs",
         "crates/tether-helper/src/main.rs",
-        "crates/tether-cli/src/main.rs (reconnect supervisor, host MAC pinning)"
+        "crates/tether-cli/src/main.rs (reconnect supervisor, host MAC pinning)",
+        "real disconnect/connect cycle and 15-minute stability run",
+        "docs/G2-VERIFICATION.md"
       ],
       "gaps": [
-        "sleep/wake, replug and device swap are implemented and synthetically tested but not hardware-verified",
+        "hardware sleep/wake, replug and device swap repetitions are still open",
         "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect"
       ]
     },
@@ -121,10 +128,11 @@
         "crates/tether-cli/src/main.rs",
         "crates/tether-cli/src/state.rs",
         "crates/tether-cli/tests/cli.rs",
-        "docs/G1-VERIFICATION.md"
+        "docs/G1-VERIFICATION.md",
+        "real connect/status/disconnect run, see docs/G2-VERIFICATION.md"
       ],
       "gaps": [
-        "connect was not run against a real device"
+        "device model and Android version are not exposed over the RNDIS-only USB configuration"
       ]
     },
     {
@@ -138,12 +146,13 @@
         "crates/tether-macos/src/feth.rs",
         "crates/tether-macos/src/service.rs",
         "crates/tether-helper/src/install.rs",
-        "crates/tether-cli/src/main.rs"
+        "crates/tether-cli/src/main.rs",
+        "real launchd install as root and net-smoke cleanup pass",
+        "docs/G2-VERIFICATION.md"
       ],
       "gaps": [
         "no signing or notarisation",
-        "install/uninstall path has not been executed with root",
-        "cleanup of a live privileged session not executed"
+        "uninstall has not been run separately"
       ]
     },
     {
@@ -175,7 +184,7 @@
         "crates/tether-core/tests/negative.rs"
       ],
       "gaps": [
-        "long-running behaviour not measured"
+        "long-running behaviour measured for 15 minutes only"
       ]
     },
     {
@@ -206,8 +215,8 @@
         "docs/requirements.json"
       ],
       "gaps": [
-        "CI workflow has not run on a remote runner",
-        "line coverage is about 61% overall; privileged macOS/helper paths are not executed",
+        "CI workflow has not run on a remote runner (no git remote configured)",
+        "line coverage is about 61% overall; privileged macOS/helper paths are only partially executed",
         "LLVM does not emit branch coverage for this target"
       ]
     },

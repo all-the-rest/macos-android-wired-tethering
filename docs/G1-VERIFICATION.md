@@ -1,8 +1,8 @@
 # G1-Verifikation (synthetisch, ohne Android-Gerät)
 
 Stand: 1. November 2026. Diese Datei dokumentiert den tatsächlich ausgeführten
-Stand. Sie ist **kein** G2-Nachweis und enthält keine Aussage über ein reales
-Samsung-Gerät.
+G1-Stand. Sie ist **kein** G2-Nachweis; der reale Samsung-Lauf ist separat in
+[G2-VERIFICATION.md](G2-VERIFICATION.md) protokolliert.
 
 ## Umgebung
 
@@ -13,7 +13,7 @@ Samsung-Gerät.
 | Rust | rustc 1.99.1 (2026-10-13), cargo 1.99.1 |
 | Ziel | `aarch64-apple-darwin` |
 | libusb | vendored via `libusb1-sys` |
-| Netzwerk | kein Android-Gerät angeschlossen |
+| Netzwerk | G1 nutzt kein Android-Gerät; der reale G2-Lauf ist separat dokumentiert |
 
 ## Ausgeführte Nachweise
 
@@ -30,12 +30,13 @@ cargo clippy --workspace --all-targets -- -D warnings       # erfolgreich
 cargo test --workspace --all-targets
 ```
 
-Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **122 bestanden, 0 fehlgeschlagen**. Aufteilung:
+Ergebnis des letzten vollständigen Laufs (`cargo test --workspace`, Log in
+`target/g1/test-workspace.log`): **125 bestanden, 0 fehlgeschlagen**.
+Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
-| `tether-cli` Unit-Tests | 9 (State, PID, IPv4, ifconfig, Helper-Fehler) |
+| `tether-cli` Unit-Tests | 11 (State, PID, IPv4, ifconfig, Helper-Fehler, CREATE-Parser) |
 | `tether-cli` Integrationstests | 5 |
 | `tether-core` Unit-Tests | 28 |
 | `tests/descriptors.rs` | 12 |
@@ -43,7 +44,7 @@ Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
 | `tests/properties.rs` | 5 |
 | `tests/session.rs` | 25 (Host-MAC, Ordnung, Größen-Clamp, Reconnect, Sleep/Wake) |
 | `tether-helper` Unit-Tests | 6 (plist, Socket-Protokoll, CREATE/LINK/STATUS/DESTROY) |
-| `tether-macos` Unit-Tests | 20 (inkl. IOKit-Power-Monitor) |
+| `tether-macos` Unit-Tests | 21 (inkl. IOKit-Power-Monitor und Darwin-BPF-Header) |
 | `tether-usb` Unit-Tests | 3 (Claim-Plan, Selektor-Auflösung) |
 
 Testanzahl und Fehlversuche werden von `scripts/verify-g1.sh` zusätzlich in
@@ -135,40 +136,56 @@ android-tether simulate --scenario reconnect
 # reconnects=1, je Richtung 2 Frames
 ```
 
-### macOS-Integration
+### macOS-Integration (privilegierter Lauf)
 
-Der Root-Helper wurde in dieser Umgebung **nicht** gestartet (kein
-passwortloses sudo). Daher:
+Der Root-Helper wurde als LaunchDaemon installiert und gestartet:
 
 ```text
-android-tether net-smoke --json
-# Exit-Code 3 = übersprungen (Helper nicht als Root gestartet), nicht Erfolg:
+android-tether-helper install --allow-uid 501
+# installed io.github.android-tether.helper
+# binary: /Library/PrivilegedHelperTools/android-tether-helper
+# plist:  /Library/LaunchDaemons/io.github.android-tether.helper.plist
+# socket: /var/run/android-tether-helper.sock
+
+launchctl print system/io.github.android-tether.helper
+# state = running, program = /Library/PrivilegedHelperTools/android-tether-helper
+```
+
+`android-tether net-smoke --json` endet mit Exit-Code 0, `passed=true`,
+`skipped=false` und zehn bestandenen Checks (Auszug ohne die beiden
+Umgebungschecks `architecture` und `os`):
+
+```json
 {
-  "passed": false,
-  "skipped": true,
   "checks": [
-    {"name":"architecture","status":"pass",...},
-    {"name":"os","status":"pass",...},
-    {"name":"helper_smoke","status":"skip","detail":"skipped: cannot connect ..."}
-  ]
+    {"name": "feth_pair", "detail": "feth100 <-> feth1100", "status": "pass"},
+    {"name": "bpf_descriptor", "detail": "passed via SCM_RIGHTS and usable", "status": "pass"},
+    {"name": "host_interface", "detail": "present", "status": "pass"},
+    {"name": "link_up", "detail": "ok", "status": "pass"},
+    {"name": "link_state", "detail": "host interface reports UP", "status": "pass"},
+    {"name": "link_down", "detail": "ok", "status": "pass"},
+    {"name": "network_service", "detail": "present while session active", "status": "pass"},
+    {"name": "cleanup", "detail": "interface removed", "status": "pass"}
+  ],
+  "passed": true,
+  "skipped": false
 }
 ```
 
-Damit sind `feth`-Paar-Erzeugung, BPF-Öffnen, `scutil --prefs`-Dienst und der
-Link-up/down/Cleanup-Pfad **implementiert und unit-getestet**, aber nicht als
-Root auf diesem Mac ausgeführt. `scripts/macos-smoke.sh` führt genau diesen
-Test aus, sobald der Helper mit Root-Rechten gestartet werden kann.
+Rohdaten: `target/g1/net-smoke.json`. Damit sind `feth`-Paar-Erzeugung,
+BPF-Öffnen und -Lesen, `SCM_RIGHTS`-Übergabe, `scutil --prefs`-Dienst,
+Link-up/down und Cleanup auf dieser macOS-Instanz als Root ausgeführt.
 
-Zusätzlich geprüft (unprivilegiert, ohne Änderungen):
+Zusätzlich geprüft:
 
 ```text
 android-tether diagnose
 # architecture=aarch64, macOS 27.2, ifconfig/scutil vorhanden,
-# BPF0 permission denied (erwartet ohne Root), Helper nicht erreichbar
+# helper=pass, BPF0 ohne Root weiterhin permission denied (erwartet)
 
 android-tether list --all
-# USB-Geräte werden gelesen; keine Netzwerkfunktion an den angeschlossenen
-# Nicht-Android-Geräten erkannt
+# Samsung 04e8:6863 als RNDIS usable erkannt; andere USB-Geräte ohne
+# Netzwerkfunktion bleiben unangetastet
 ```
 
 ## Bewertung gegen PLAN.md §7 (G1)
@@ -178,34 +195,35 @@ android-tether list --all
 | 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Workflow vorhanden, aber ohne Remote nicht ausgeführt |
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
 | 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake, aber ohne Langzeit-/Hardware-Lauf |
-| 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; macOS-Smoke **skipped** (Root-Helper nicht gestartet) |
+| 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit zehn bestandenen Checks erfüllt |
 | 5. Testmatrix, Quellen, Commit-ID, Logs, Lücken | Matrix/Quellen/Logs vorhanden; Commit-ID und Requirement-Abdeckung maschinenlesbar in `target/g1-report.json`; `docs/requirements.json` enthält den geprüften Status je F-/N-Anforderung |
 
-**Ergebnis:** Kein vollständiges G1 nach der strengen Definition, weil
-Kriterium 4 nur teilweise ausgeführt wurde. Der korrekte Status lautet:
+**Ergebnis:** G1 ist mit diesem Lauf erfüllt:
 
-> **Protokollkern synthetisch verifiziert; vollständige synthetische
-> macOS-Integration noch nicht ausgeführt.** Der Rust-Protokollkern und die
+> **G1 erreicht – synthetisch verifiziert.** Der Rust-Protokollkern und die
 > USB-/Netzwerk-Mocks bestehen die dokumentierten Konformitäts-, Integrations-
-> und Fehlertests. Der arm64-macOS-Build ist erfolgreich. Eine funktionierende
-> Verbindung zu einem echten Android-Gerät ist ausdrücklich **nicht**
-> nachgewiesen.
+> und Fehlertests auf dem in `target/g1-report.json` verzeichneten Commit.
+> Der arm64-macOS-Build und der
+> privilegierte `feth`/BPF/`scutil`-Smoke-Test sind erfolgreich. Eine
+> funktionierende Verbindung zu einem echten Android-Gerät ist damit nicht
+> automatisch nachgewiesen; dieser Nachweis wird separat in
+> [G2-VERIFICATION.md](G2-VERIFICATION.md) geführt.
 
 ## Offene Lücken
 
-1. `net-smoke`/`connect` mit Root-Helper auf echter macOS-Instanz.
-2. Realer Replug, Sleep/Wake und Langzeitbetrieb; die IOKit-Power-Hooks und
-   der synthetische Reconnect-Supervisor sind implementiert, aber nicht auf
-   Hardware ausgeführt.
-3. NCM/ECM-Delegation auf realer Hardware.
-4. Line-Coverage liegt bei rund 61 %; Root-/Hardware-Pfade sind nicht
+1. Realer Replug, Sleep/Wake und Gerätewechsel; die IOKit-Power-Hooks und der
+   Reconnect-Supervisor sind implementiert und synthetisch getestet, aber
+   noch nicht in Hardware-Wiederholungen ausgeführt.
+2. NCM/ECM-Delegation auf realer Hardware.
+3. Line-Coverage liegt bei rund 61 %; Root-/Hardware-Pfade sind nur teilweise
    ausgeführt, Branch-Coverage wird von LLVM auf diesem Target nicht geliefert.
-5. Signierung und Notarisierung; die LaunchDaemon-Installation ist implementiert,
-   aber nicht als Root ausgeführt.
-6. G2: Samsung-Gerät, DHCP/DNS/HTTPS ohne anderen Uplink, 15-Minuten-Test,
-   Wiederholungen, Cleanup.
+4. Signierung und Notarisierung; `uninstall` wurde noch nicht separat geprüft.
+5. G2-Vollständigkeit: Modell-/Android-Version, Replug/Sleep/Wake je 3×,
+   Durchsatzoptimierung.
 
 ## G2
 
-G2 wurde nicht begonnen. Ein Testprotokoll-Template liegt in
-[G2-TEMPLATE.md](G2-TEMPLATE.md).
+G2 ist für die Kriterien 1–3 und den Cleanup-Teil von Kriterium 5 mit einem
+realen Samsung-Gerät belegt. Kriterium 4 (Replug/Sleep/Wake-Wiederholungen)
+und die Modell-/Android-Version sind noch offen. Protokoll:
+[G2-VERIFICATION.md](G2-VERIFICATION.md).
