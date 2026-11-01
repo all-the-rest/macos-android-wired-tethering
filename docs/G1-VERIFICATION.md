@@ -102,8 +102,9 @@ cargo llvm-cov --workspace --json --summary-only \
   --output-path target/g1/coverage.json
 ```
 
-Letzter Lauf (Commit siehe `target/g1-report.json`): **61,03 % Zeilen**
-(4.262 / 6.983), **64,06 % Regionen** und **59,07 % Funktionen**. Die
+Letzter Lauf (exakte Werte in `target/g1-report.json` und
+`target/g1/coverage.json`): rund **61 % Zeilen**, **64 % Regionen** und
+**59 % Funktionen**. Die
 Protokollkern-Module liegen deutlich höher (z. B. `rndis/message.rs` 85,6 %,
 `rndis/packet.rs` 86,0 %, `descriptor.rs` 83,2 % Zeilen). CLI-, Helper- und
 BPF-Pfade, die Root oder echte Hardware benötigen, sind dagegen kaum
@@ -193,7 +194,7 @@ Kriterium 4 nur teilweise ausgeführt wurde. Der korrekte Status lautet:
 2. Realer Replug, Sleep/Wake und Langzeitbetrieb; der synthetische
    Reconnect-Supervisor ist implementiert, aber nicht auf Hardware ausgeführt.
 3. NCM/ECM-Delegation auf realer Hardware.
-4. Line-Coverage liegt bei ca. 61,0 %; Root-/Hardware-Pfade sind nicht
+4. Line-Coverage liegt bei rund 61 %; Root-/Hardware-Pfade sind nicht
    ausgeführt, Branch-Coverage wird von LLVM auf diesem Target nicht geliefert.
 5. Signierung und Notarisierung; die LaunchDaemon-Installation ist implementiert,
    aber nicht als Root ausgeführt.
