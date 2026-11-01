@@ -130,6 +130,7 @@ ab, statt den Treiber zu entfernen.
 android-tether simulate --scenario basic
 android-tether simulate --scenario dhcp --json
 android-tether simulate --scenario faults
+android-tether simulate --scenario reconnect
 
 # macOS feth/BPF/Netzwerkdienst-Smoke-Test (benötigt laufenden Root-Helper)
 # Exit-Code 3 bedeutet "übersprungen", nicht "bestanden".

@@ -101,6 +101,7 @@
       "status": "partial",
       "evidence": [
         "crates/tether-core/src/engine.rs",
+        "crates/tether-core/src/testkit.rs (reconnect scenario)",
         "crates/tether-core/tests/session.rs",
         "crates/tether-helper/src/main.rs",
         "crates/tether-cli/src/main.rs (reconnect supervisor, host MAC pinning)"
@@ -205,7 +206,7 @@
       ],
       "gaps": [
         "CI workflow has not run on a remote runner",
-        "line coverage is about 55.6% overall; privileged macOS/helper paths are not executed",
+        "line coverage is about 56.3% overall; privileged macOS/helper paths are not executed",
         "LLVM does not emit branch coverage for this target"
       ]
     },

@@ -1002,6 +1002,7 @@ fn command_simulate(json_output: bool, scenario: &str) -> Result<()> {
             "received_by_device": report.received_by_device,
             "delivered_to_host": report.delivered_to_host,
             "link_changes": report.link_changes,
+            "reconnects": report.reconnects,
             "warnings": report.warnings,
         }))?;
         return Ok(());
@@ -1023,8 +1024,8 @@ fn command_simulate(json_output: bool, scenario: &str) -> Result<()> {
         report.bytes_host_to_phone, report.bytes_phone_to_host
     );
     println!(
-        "  device received={} host received={} link changes={}",
-        report.received_by_device, report.delivered_to_host, report.link_changes
+        "  device received={} host received={} link changes={} reconnects={}",
+        report.received_by_device, report.delivered_to_host, report.link_changes, report.reconnects
     );
     for warning in &report.warnings {
         println!("  warning: {warning}");

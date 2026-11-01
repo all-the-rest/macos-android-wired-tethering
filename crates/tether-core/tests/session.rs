@@ -140,6 +140,23 @@ fn maximum_total_size_clamps_frame_size() {
 }
 
 #[test]
+fn reconnect_simulation_reuses_bridge_and_pins_host_mac() {
+    let report = run_simulation(Scenario::Reconnect).unwrap();
+    assert_eq!(report.reconnects, 1);
+    assert_eq!(report.info.host_mac, [0x02, 0, 0, 0, 0, 0x42]);
+    assert!(!report.info.host_mac_from_device);
+    assert!(report
+        .info
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("pinned")));
+    assert_eq!(report.frames_host_to_phone, 2);
+    assert_eq!(report.frames_phone_to_host, 2);
+    assert_eq!(report.received_by_device, 2);
+    assert_eq!(report.delivered_to_host, 2);
+}
+
+#[test]
 fn many_received_frames_preserve_order_and_counters() {
     let (host, _) = macs();
     let mut device = MockRndisDevice::new().with_host_mac(host.0);

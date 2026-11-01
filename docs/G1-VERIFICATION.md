@@ -31,7 +31,7 @@ cargo test --workspace --all-targets
 ```
 
 Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
-`target/g1/tests.log`): **111 bestanden, 0 fehlgeschlagen**. Aufteilung:
+`target/g1/tests.log`): **112 bestanden, 0 fehlgeschlagen**. Aufteilung:
 
 | Testbinary | Tests |
 |---|---:|
@@ -41,7 +41,7 @@ Ergebnis des letzten vollständigen Laufs (`scripts/verify-g1.sh`, log in
 | `tests/descriptors.rs` | 12 |
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
-| `tests/session.rs` | 23 (Host-MAC-Pinning, Frame-Ordnung, Größen-Clamp) |
+| `tests/session.rs` | 24 (Host-MAC-Pinning, Frame-Ordnung, Größen-Clamp, Reconnect) |
 | `tether-helper` Unit-Tests | 4 (LaunchDaemon-plist inkl. `plutil -lint`) |
 | `tether-macos` Unit-Tests | 18 |
 | `tether-usb` Unit-Tests | 1 (Claim-Plan) |
@@ -102,8 +102,8 @@ cargo llvm-cov --workspace --json --summary-only \
   --output-path target/g1/coverage.json
 ```
 
-Letzter Lauf (Commit siehe `target/g1-report.json`): **55,64 % Zeilen**
-(3.694 / 6.639), **58,46 % Regionen** und **54,48 % Funktionen**. Die
+Letzter Lauf (Commit siehe `target/g1-report.json`): **56,27 % Zeilen**
+(3.800 / 6.753), **59,03 % Regionen** und **54,97 % Funktionen**. Die
 Protokollkern-Module liegen deutlich höher (z. B. `rndis/message.rs` 85,6 %,
 `rndis/packet.rs` 86,0 %, `descriptor.rs` 83,2 % Zeilen). CLI-, Helper- und
 BPF-Pfade, die Root oder echte Hardware benötigen, sind dagegen kaum
@@ -124,6 +124,11 @@ android-tether simulate --scenario dhcp --json
 android-tether simulate --scenario faults
 # reduzierter Packet-Filter 0x0d nach Ablehnung von 0x2d; Frames weiterhin
 # bidirektional; Warnungen dokumentiert
+
+android-tether simulate --scenario reconnect
+# zwei Sessions auf derselben Mock-Bruecke; die zweite Session meldet eine
+# andere Host-MAC, wird aber auf die bestehende Bridge-MAC gepinnt;
+# reconnects=1, je Richtung 2 Frames
 ```
 
 ### macOS-Integration
@@ -188,7 +193,7 @@ Kriterium 4 nur teilweise ausgeführt wurde. Der korrekte Status lautet:
 2. Realer Replug, Sleep/Wake und Langzeitbetrieb; der synthetische
    Reconnect-Supervisor ist implementiert, aber nicht auf Hardware ausgeführt.
 3. NCM/ECM-Delegation auf realer Hardware.
-4. Line-Coverage liegt bei ca. 55,6 %; Root-/Hardware-Pfade sind nicht
+4. Line-Coverage liegt bei ca. 56,3 %; Root-/Hardware-Pfade sind nicht
    ausgeführt, Branch-Coverage wird von LLVM auf diesem Target nicht geliefert.
 5. Signierung und Notarisierung; die LaunchDaemon-Installation ist implementiert,
    aber nicht als Root ausgeführt.
