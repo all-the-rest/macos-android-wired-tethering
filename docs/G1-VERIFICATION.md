@@ -193,7 +193,7 @@ android-tether list --all
 
 | G1-Kriterium | Status |
 |---|---|
-| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; CI-Workflow vorhanden, aber ohne Remote nicht ausgeführt |
+| 1. `cargo test` + verpflichtende CI-Prüfungen | lokal erfüllt; erster CI-Lauf auf GitHub Actions grün: `verify`, `coverage`, `fuzz` und `macos-smoke` (11/11 Checks, nicht übersprungen), Lauf `41339266007` |
 | 2. simulierte RNDIS-Initialisierung bis bidirektionaler Frame-Übertragung; Fehlerbehandlung | erfüllt |
 | 3. alle einschlägigen Testgruppen inkl. Fuzzing | erfüllt für T-01 bis T-06/T-08-Klassifikation; T-07 synthetisch inkl. Sleep/Wake, aber ohne Langzeit-/Hardware-Lauf |
 | 4. arm64-Build + hardwarefreier macOS-Smoke | Build erfüllt; `net-smoke` als Root mit elf bestandenen Checks erfüllt |

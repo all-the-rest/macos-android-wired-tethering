@@ -17,9 +17,3 @@ Stand: 1. November 2026. Nur offene TODOs; erledigte Arbeit wird gelöscht.
 
 - [ ] `android-tether-helper uninstall` separat testen.
 - [ ] Signierung/Notarisierung und öffentliche Verteilung entscheiden.
-
-## CI
-
-- [ ] Ersten CI-Lauf auf dem öffentlichen Remote beobachten.
-- [ ] Prüfen, ob der `macos-smoke`-Job auf GitHub-hosted Runnern feth/BPF
-      ausführen darf; sonst als dokumentierte Lücke führen.
