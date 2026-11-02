@@ -346,6 +346,7 @@ des Mobilfunknetzes, keine garantierte Dauerleistung.
 | erneutes `connect` nach Helper-Neuinstallation | erfolgreich; neue Session, gleiche Bridge, DHCP erneut bezogen |
 | Replug (3×) | **bestanden**: 20:31:37Z, 20:32:19Z, 20:33:45Z getrennt; jeweils automatisch neu verbunden; DHCP `.52`, `.180`, `.194` |
 | Tethering aus/an (3×) | **bestanden (Nutzerbestätigung)**: ein Zyklus erzwang einen vollständigen Session-Neuaufbau (20:33:59Z → 20:34:08Z), die übrigen blieben ohne Session-Abbruch |
+| Tethering aus/an mit Stale-Route-Fix (2. Nov. 2026) | **bestanden**: `feth100` war Default-Uplink; nach dem Toggle kein `route returned no default interface` mehr, der Agent verband neu (DHCP `.185`), Ping 2/2, HTTPS 200 |
 | Sleep/Wake (3×) | **1× bestanden** (`system_sleep` → `system_wake`, `reconnects=1`, danach verbunden); die beiden weiteren Zyklen wurden für G2 nicht wiederholt und vom Nutzer akzeptiert |
 | `connect --prefer` mit aktivem WLAN | **bestanden**: `feth100` primär, HTTP 200 ohne Interface-Bindung, WLAN blieb aktiv |
 | Standard-Priorität 2 (`FALLBACK`) | **bestanden** im `net-smoke`: Dienst hinter dem Default-Uplink einsortiert |
@@ -393,6 +394,26 @@ danach erneut 11/11.
    Der Parser akzeptiert jetzt 18–64 Bytes, nutzt `bh_hdrlen` als Datenoffset
    und richtet den nächsten Record weiter auf 4 Bytes aus. Ein Test deckt
    zusätzlich die gepolsterte 20-Byte-Variante ab.
+
+3. **Stale Default-Route brach den Reconnect ab**
+   Beim Tethering-aus/an und beim Wechsel des USB-C-Ports blieb die
+   Default-Route kurz auf dem verschwundenen `feth100`; `route -n get default`
+   antwortete mit Exit 0, aber ohne `interface:`-Zeile. Der Helper machte daraus
+   `ERR network route returned no default interface`, und der Connect brach ab.
+   Zusätzlich konnte die eigene Bridge als Anker der Dienstreihenfolge dienen.
+   Der Helper behandelt eine nicht zuordenbare Route jetzt als „kein Default"
+   und ignoriert die eigene Bridge als Anker
+   (`crates/tether-helper/src/main.rs`); die Tests
+   `fallback_without_a_usable_uplink_places_the_service_first` und
+   `own_bridge_is_not_used_as_fallback_anchor` decken beide Fälle ab.
+
+   Nachweis: Das Agent-Log zeigt vor dem Fix dreimal
+   `[network] route returned no default interface` direkt nach
+   `device disconnected`. Mit dem neuen Helper (`ed069d75…`, installiert am
+   2. November 2026 um 18:04 CET) und `feth100` als Default-Uplink wurde
+   Tethering um 18:15 CET aus- und wieder eingeschaltet: Der Agent verband
+   erneut (`ipv4 10.138.90.185`), der Route-Fehler trat nicht mehr auf, und
+   Ping (2/2) sowie HTTPS (200) liefen über den Tether.
 
 ## Bewertung gegen PLAN.md §7 (G2)
 

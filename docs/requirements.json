@@ -119,11 +119,14 @@
         "crates/tether-cli/src/agent.rs (LaunchAgent auto supervisor)",
         "real user LaunchAgent installed and waiting for RNDIS",
         "real auto-connect on attach, 3x replug with fresh DHCP lease, and launchctl kickstart restart on 2026-11-01",
-        "real sleep/wake cycle: system_sleep -> system_wake, reconnects=1, session restored"
+        "real sleep/wake cycle: system_sleep -> system_wake, reconnects=1, session restored",
+        "crates/tether-helper/src/main.rs (stale default route treated as no default; own bridge not used as fallback anchor)",
+        "helper unit tests: default_route_lookup_distinguishes_missing_route_from_errors, own_bridge_is_not_used_as_fallback_anchor, fallback_without_a_usable_uplink_places_the_service_first",
+        "real tethering off/on cycle with the fixed helper on 2026-11-02: reconnect with feth100 as default uplink, ping 2/2, HTTPS 200, no route abort"
       ],
       "gaps": [
         "two more hardware sleep/wake repetitions were not run; the user accepted G2 with the current data",
-        "tethering off/on was run 3x by the user; only one full session rebuild is visible in the monitor log",
+        "tethering off/on was run 3x by the user; only one full session rebuild is visible in the monitor log; a post-fix cycle was verified on 2026-11-02",
         "reconnect uses the existing feth MTU; a device with a smaller MTU requires a manual reconnect",
         "hardware device swap is still open"
       ]
