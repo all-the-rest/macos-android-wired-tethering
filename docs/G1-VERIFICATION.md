@@ -30,8 +30,8 @@ cargo clippy --workspace --all-targets -- -D warnings       # erfolgreich
 cargo test --workspace --all-targets
 ```
 
-Ergebnis des letzten vollständigen Laufs (`cargo test --workspace`, Log in
-`target/g1/test-workspace.log`): **138 bestanden, 0 fehlgeschlagen**.
+Ergebnis des letzten vollständigen Laufs (`cargo test --workspace --all-targets`):
+**140 bestanden, 0 fehlgeschlagen**.
 Aufteilung:
 
 | Testbinary | Tests |
@@ -43,7 +43,7 @@ Aufteilung:
 | `tests/negative.rs` | 9 |
 | `tests/properties.rs` | 5 |
 | `tests/session.rs` | 25 (Host-MAC, Ordnung, Größen-Clamp, Reconnect, Sleep/Wake) |
-| `tether-helper` Unit-Tests | 7 (plist, Socket-Protokoll, CREATE/LINK/PREFER/FALLBACK/STATUS/DESTROY, Default-Route-Fehler) |
+| `tether-helper` Unit-Tests | 9 (plist, Socket-Protokoll, CREATE/LINK/PREFER/FALLBACK/STATUS/DESTROY, Default-Route-Parsing inkl. stale Route und eigener Bridge) |
 | `tether-macos` Unit-Tests | 30 (inkl. IOKit-Power-Monitor, Darwin-BPF-Header und Dienstreihenfolge) |
 | `tether-usb` Unit-Tests | 3 (Claim-Plan, Selektor-Auflösung) |
 

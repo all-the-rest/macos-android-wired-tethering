@@ -438,6 +438,7 @@ fn handle_fallback(
             return Ok(());
         }
     };
+    let default_interface = uplink_default_interface(default_interface, &resources.pair.host_iface);
     match resources
         .service
         .fallback(prefs, default_interface.as_deref())
@@ -451,15 +452,15 @@ fn handle_fallback(
 
 fn default_route_interface(runner: &dyn CommandRunner) -> Result<Option<String>, String> {
     match runner.run("/sbin/route", &["-n", "get", "default"]) {
-        Ok(text) => text
-            .lines()
-            .find_map(|line| {
-                line.trim()
-                    .strip_prefix("interface: ")
-                    .map(|value| value.trim().to_string())
-            })
-            .map(Some)
-            .ok_or_else(|| "route returned no default interface".to_string()),
+        // A route that is still cached while its interface disappears can be
+        // reported without an `interface:` line.  That is a default route we
+        // cannot attribute to an uplink, so it must be treated like "no
+        // default" instead of aborting the connection attempt.
+        Ok(text) => Ok(text.lines().find_map(|line| {
+            line.trim()
+                .strip_prefix("interface: ")
+                .map(|value| value.trim().to_string())
+        })),
         // `route` reports a missing default route with this diagnostic.  Only
         // that case means "no default"; execution/lookup errors must not
         // promote the tether above an existing uplink.
@@ -468,6 +469,13 @@ fn default_route_interface(runner: &dyn CommandRunner) -> Result<Option<String>,
         }
         Err(error) => Err(format!("cannot read the default route: {error}")),
     }
+}
+
+/// A default route that points at the session's own bridge is not an uplink.
+/// Passing it as the fallback anchor would order the reserved service behind
+/// itself, so it is dropped and the service stays first.
+fn uplink_default_interface(default: Option<String>, own_interface: &str) -> Option<String> {
+    default.filter(|interface| interface != own_interface)
 }
 
 struct HelperSession {
@@ -679,10 +687,70 @@ mod tests {
         };
         assert!(default_route_interface(&broken).is_err());
 
-        let malformed = StaticRunner {
-            result: Ok("route to: default\n".to_string()),
+        // A cached route whose interface is already gone is not an uplink:
+        // it must behave like "no default" and keep the connect alive.
+        let stale = StaticRunner {
+            result: Ok("route to: default\ndestination: default\n".to_string()),
         };
-        assert!(default_route_interface(&malformed).is_err());
+        assert_eq!(default_route_interface(&stale).unwrap(), None);
+
+        let empty = StaticRunner {
+            result: Ok(String::new()),
+        };
+        assert_eq!(default_route_interface(&empty).unwrap(), None);
+    }
+
+    #[test]
+    fn own_bridge_is_not_used_as_fallback_anchor() {
+        assert_eq!(
+            uplink_default_interface(Some("en0".to_string()), "feth100"),
+            Some("en0".to_string())
+        );
+        assert_eq!(
+            uplink_default_interface(Some("feth100".to_string()), "feth100"),
+            None
+        );
+        assert_eq!(uplink_default_interface(None, "feth100"), None);
+    }
+
+    #[test]
+    fn fallback_without_a_usable_uplink_places_the_service_first() {
+        // Both a stale route (no interface line) and a route via our own
+        // bridge must end in the same ordering as "no default route".
+        for route in [
+            "route to: default\ndestination: default\n",
+            "route to: default\ninterface: feth100\n",
+        ] {
+            let prefs = FakePrefs::default();
+            *prefs.present.borrow_mut() = true;
+            let session = Some(HelperSession {
+                pair: FethPair {
+                    host_iface: "feth100".into(),
+                    peer_iface: "feth1100".into(),
+                    mtu: 1500,
+                },
+                service: NetworkService {
+                    name: DEFAULT_SERVICE_NAME.into(),
+                    interface: "feth100".into(),
+                },
+            });
+            let runner = StaticRunner {
+                result: Ok(route.to_string()),
+            };
+            let (stream, mut peer) = UnixStream::pair().expect("socket pair");
+            let mut channel = FdChannel::new(stream);
+            handle_fallback(&session, &mut channel, &runner, &prefs).expect("fallback");
+
+            let mut response = String::new();
+            BufReader::new(&mut peer)
+                .read_line(&mut response)
+                .expect("response");
+            assert_eq!(response.trim(), "OK fallback", "for route {route:?}");
+            assert!(
+                *prefs.preferred.borrow(),
+                "service must be placed first for route {route:?}"
+            );
+        }
     }
 
     fn fake_bpf(interface: &str) -> tether_core::error::Result<BpfSocket> {
