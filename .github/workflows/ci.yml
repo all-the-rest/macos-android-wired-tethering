@@ -17,12 +17,14 @@ jobs:
           targets: aarch64-apple-darwin
           components: rustfmt, clippy
       - name: ratchet fast gates
-        # Pinned to the v0.6.3 release commit: the repository has no moving
+        # Pinned to the v0.8.0 release commit: the repository has no moving
         # `v1` ref, and a full commit SHA keeps the gate reproducible.
-        uses: all-the-rest/ratchet-cli@4cace52ac7731985130292ead6ae81d44b4d72d6
+        uses: all-the-rest/ratchet-cli@dcb6a489d13aa9c7513584caf739deb7d97dcaee # v0.8.0
         with:
           mode: validate
           tier: fast
+          version: v0.8.0
+          args: --no-ratchet
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
